@@ -14,7 +14,7 @@ import { Env } from '@/config/env';
         username: configService.get('DB_USERNAME'),
         password: configService.get('DB_PASSWORD'),
         database: configService.get('DB_NAME'),
-        entities: ['dist/**/*.entity.js'],
+        autoLoadEntities: true,
         synchronize: false,
         logging: configService.get('NODE_ENV') === 'development',
         migrationsTransactionMode: 'all',
