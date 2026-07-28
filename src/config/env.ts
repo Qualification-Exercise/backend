@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  NODE_ENV: z
+    .enum(['development', 'production', 'test'])
+    .default('development'),
   PORT: z.coerce.number().default(3000),
   APP_NAME: z.string().default('wdk-backend'),
 
@@ -10,7 +12,12 @@ const envSchema = z.object({
   DB_USERNAME: z.string(),
   DB_PASSWORD: z.string(),
   DB_NAME: z.string(),
-  DB_SYNCHRONIZE: z.coerce.boolean().default(false),
+  // NOT z.coerce.boolean(): Boolean('false') is true, which silently turns
+  // synchronize on in every environment that sets it to 'false'.
+  DB_SYNCHRONIZE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
@@ -31,7 +38,9 @@ const envSchema = z.object({
   UTILITY_TOKEN_CONTRACT_ADDRESS: z.string(),
   UTILITY_TOKEN_CONTRACT_ABI: z.string().default('[]'),
 
-  SUPPORTED_CHAINS: z.string().default('BTC,SPARK,ARBITRUM,ETHEREUM,POLYGON,TRON'),
+  SUPPORTED_CHAINS: z
+    .string()
+    .default('BTC,SPARK,ARBITRUM,ETHEREUM,POLYGON,TRON'),
   SUPPORTED_ASSETS: z.string().default('BTC,USDT'),
 
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
