@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wdk_postgres
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wdk_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: wdk_redis
+    ports:
+      - "${REDIS_PORT}:6379"
+    command: redis-server ${REDIS_PASSWORD:+--requirepass $REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wdk_network
+
+  adminer:
+    image: adminer:latest
+    container_name: wdk_adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - wdk_network
+
+  # WDK Indexer placeholder
+  # Uncomment and configure when ready to integrate with actual WDK indexer
+  # See: https://github.com/tetherto/wdk
+  # indexer:
+  #   image: tetherto/wdk-indexer:latest
+  #   container_name: wdk_indexer
+  #   environment:
+  #     RPC_URL: ${RPC_URL}
+  #     DATABASE_URL: ${INDEXER_DATABASE_URL}
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   networks:
+  #     - wdk_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  wdk_network:
+    driver: bridge
