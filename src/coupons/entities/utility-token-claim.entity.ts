@@ -25,7 +25,7 @@ export class UtilityTokenClaim {
   @Column({ nullable: true })
   txHash: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   claimedAt: Date;
 
   @OneToOne(() => Coupon, (coupon) => coupon.claim, { onDelete: 'CASCADE' })
