@@ -41,6 +41,9 @@ const envSchema = z.object({
   AUTH_AUDIENCE: z.string(),
   JWKS_URI: z.string().url(),
 
+  GOOGLE_CLIENT_ID: z.string(),
+  REFRESH_TOKEN_EXPIRATION: z.coerce.number().default(60 * 60 * 24 * 7),
+
   SEED_BACKUP_ENCRYPTION_KEY: z.string().min(32),
 
   INDEXER_BASE_URL: z.string().url(),
