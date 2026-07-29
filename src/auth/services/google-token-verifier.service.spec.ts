@@ -107,8 +107,10 @@ describe('GoogleTokenVerifierService', () => {
     });
 
     it('should throw ServiceUnavailableException for network errors', async () => {
+      const error = new Error('getaddrinfo ENOTFOUND');
+      (error as any).code = 'ENOTFOUND';
       (service as any).clientConfigs[EClientType.IOS].client.verifyIdToken =
-        jest.fn().mockRejectedValue({ code: 'ENOTFOUND' });
+        jest.fn().mockRejectedValue(error);
 
       await expect(
         service.verifyIdTokenForProfile('token', EClientType.IOS),
@@ -151,8 +153,10 @@ describe('GoogleTokenVerifierService', () => {
     });
 
     it('should handle ECONNREFUSED as network error', async () => {
+      const error = new Error('connect ECONNREFUSED');
+      (error as any).code = 'ECONNREFUSED';
       (service as any).clientConfigs[EClientType.IOS].client.verifyIdToken =
-        jest.fn().mockRejectedValue({ code: 'ECONNREFUSED' });
+        jest.fn().mockRejectedValue(error);
 
       await expect(
         service.verifyIdTokenForProfile('token', EClientType.IOS),
@@ -160,8 +164,10 @@ describe('GoogleTokenVerifierService', () => {
     });
 
     it('should handle ETIMEDOUT as network error', async () => {
+      const error = new Error('request timeout ETIMEDOUT');
+      (error as any).code = 'ETIMEDOUT';
       (service as any).clientConfigs[EClientType.ANDROID].client.verifyIdToken =
-        jest.fn().mockRejectedValue({ code: 'ETIMEDOUT' });
+        jest.fn().mockRejectedValue(error);
 
       await expect(
         service.verifyIdTokenForProfile('token', EClientType.ANDROID),
@@ -169,8 +175,10 @@ describe('GoogleTokenVerifierService', () => {
     });
 
     it('should handle EAI_AGAIN as network error', async () => {
+      const error = new Error('getaddrinfo EAI_AGAIN');
+      (error as any).code = 'EAI_AGAIN';
       (service as any).clientConfigs[EClientType.WEB].client.verifyIdToken =
-        jest.fn().mockRejectedValue({ code: 'EAI_AGAIN' });
+        jest.fn().mockRejectedValue(error);
 
       await expect(
         service.verifyIdTokenForProfile('token', EClientType.WEB),
