@@ -1,4 +1,7 @@
 export enum EErrorCodes {
+  // Common errors
+  INVALID_REQUEST = 'INVALID_REQUEST',
+
   // Auth errors
   INVALID_GOOGLE_TOKEN = 'INVALID_GOOGLE_TOKEN',
   GOOGLE_UNAVAILABLE = 'GOOGLE_UNAVAILABLE',
