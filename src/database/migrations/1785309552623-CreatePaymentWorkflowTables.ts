@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreatePaymentWorkflowTables1785308927074 implements MigrationInterface {
-  name = 'CreatePaymentWorkflowTables1785308927074';
+export class CreatePaymentWorkflowTables1785309552623 implements MigrationInterface {
+  name = 'CreatePaymentWorkflowTables1785309552623';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
@@ -38,7 +38,7 @@ export class CreatePaymentWorkflowTables1785308927074 implements MigrationInterf
       `CREATE TABLE "attestations" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "claim_id" uuid NOT NULL, "issuer_address" character varying NOT NULL, "signature" character varying NOT NULL, "chain_id" character varying NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_5bfe0da3020a6f609762f559d17" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
-      `CREATE INDEX "IDX_attestations_claim_id_issuer_address" ON "attestations"  ("claim_id", "issuer_address") `,
+      `CREATE UNIQUE INDEX "IDX_attestations_claim_id_issuer_address" ON "attestations"  ("claim_id", "issuer_address") `,
     );
     await queryRunner.query(
       `CREATE TABLE "backups" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "ciphertext" bytea NOT NULL, "kdf_algorithm" character varying NOT NULL, "kdf_params" jsonb NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_ca30ff369eddfc7dac3b35d0d3c" PRIMARY KEY ("id"))`,
