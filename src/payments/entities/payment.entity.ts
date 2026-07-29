@@ -50,7 +50,7 @@ export class PaymentEntity {
   tokenAddress: string;
 
   @Column({ name: 'amount', type: 'decimal', precision: 40, scale: 0 })
-  amount: string;
+  amount: string; // Wei-level precision (no decimal places)
 
   @Column({
     name: 'status',
@@ -95,5 +95,5 @@ export class PaymentEntity {
 
   @OneToOne(() => Coupon, { nullable: true })
   @JoinColumn({ name: 'coupon_id' })
-  coupon: Coupon | null;
+  coupon: Coupon | null; // One-way relation; Coupon is legacy entity and should not reference Payment
 }
