@@ -7,9 +7,10 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main",
-    "lint": "eslint src test",
-    "lint:fix": "eslint src test --fix",
-    "format": "prettier --write src/**/*.ts",
+    "lint": "eslint src test --no-error-on-unmatched-pattern",
+    "lint:fix": "eslint src test --fix --no-error-on-unmatched-pattern",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "jest",
     "test:cov": "jest --coverage",
     "docker:up": "docker compose --env-file .env -f infra/docker-compose.yml up -d",
@@ -19,7 +20,8 @@
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
     "seed": "ts-node -r tsconfig-paths/register src/database/seed.ts",
-    "dev:token": "ts-node -r tsconfig-paths/register scripts/dev-token.ts"
+    "dev:token": "ts-node -r tsconfig-paths/register scripts/dev-token.ts",
+    "poll:once": "ts-node -r tsconfig-paths/register scripts/poll-once.ts"
   },
   "repository": {
     "type": "git",
@@ -52,6 +54,7 @@
     "@nestjs/platform-express": "^11.1.28",
     "@nestjs/typeorm": "^11.0.3",
     "@scure/base": "^1.2.6",
+    "@tetherto/wdk-pricing-bitfinex-http": "^1.0.0-beta.4",
     "@tetherto/wdk-utils": "^1.0.0-beta.10",
     "axios": "^1.18.1",
     "class-transformer": "^0.5.1",
