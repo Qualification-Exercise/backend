@@ -22,7 +22,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   // Resolves the IdP `sub` to our internal user ID; unknown `sub`s are unauthorized, as user creation belongs to the auth session flow.
-  async validate(payload: { sub: string; email?: string }): Promise<IAuthUser> {
+  async validate(payload: {
+    sub: string;
+    email?: string;
+    type?: string;
+  }): Promise<IAuthUser> {
+    if (payload.type === 'refresh') throw new UnauthorizedException();
+
     const user = await this.usersService.findByExternalAuthId(payload.sub);
     if (!user) throw new UnauthorizedException();
 

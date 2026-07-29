@@ -41,6 +41,11 @@ const envSchema = z.object({
   AUTH_AUDIENCE: z.string(),
   JWKS_URI: z.string().url(),
 
+  GOOGLE_IOS_CLIENT_ID: z.string(),
+  GOOGLE_ANDROID_CLIENT_ID: z.string(),
+  GOOGLE_WEB_CLIENT_ID: z.string().optional(),
+  REFRESH_TOKEN_EXPIRATION: z.coerce.number().default(60 * 60 * 24 * 7),
+
   SEED_BACKUP_ENCRYPTION_KEY: z.string().min(32),
 
   INDEXER_BASE_URL: z.string().url(),
@@ -91,6 +96,8 @@ const envSchema = z.object({
   SUPPORTED_ASSETS: z.string().default('BTC,USDT'),
 
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
+
+  CORS_ORIGINS: z.string().default('*'),
 });
 
 export type Env = z.infer<typeof envSchema>;

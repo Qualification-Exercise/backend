@@ -20,6 +20,12 @@ export class User {
   @Column({ unique: true })
   email: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  firstName: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  lastName: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

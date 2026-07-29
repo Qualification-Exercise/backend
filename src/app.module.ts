@@ -12,6 +12,8 @@ import { PricingModule } from '@/pricing/pricing.module';
 import { AppConfigModule } from '@/config/config.module';
 import { AuthModule } from '@/auth/auth.module';
 import { HealthModule } from '@/health/health.module';
+import { APP_FILTER } from '@nestjs/core';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 @Module({
   imports: [
@@ -31,6 +33,12 @@ import { HealthModule } from '@/health/health.module';
     PricingModule,
     AppConfigModule,
     HealthModule,
+  ],
+  providers: [
+    {
+      provide: APP_FILTER,
+      useClass: GlobalExceptionFilter,
+    },
   ],
 })
 export class AppModule {}
