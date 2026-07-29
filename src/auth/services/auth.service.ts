@@ -12,6 +12,7 @@ import {
   IAuthResponse,
 } from '../interfaces/auth-response.interface';
 import { EErrorCodes } from '@/common/enums/error-codes.enum';
+import { TEST_USER_ID } from '@/database/seed';
 
 export type { IAuthResponse };
 
@@ -85,6 +86,29 @@ export class AuthService {
           'Refresh token is invalid or expired',
         ),
       );
+
+    return this.buildAuthResponse(user);
+  }
+
+  async generateDevTestToken(): Promise<IAuthResponse> {
+    if (this.configService.get('NODE_ENV') !== 'development') {
+      throw new UnauthorizedException(
+        apiError(
+          EErrorCodes.INVALID_REQUEST,
+          'Test token endpoint only available in development',
+        ),
+      );
+    }
+
+    const user = await this.usersService.findById(TEST_USER_ID);
+    if (!user) {
+      throw new UnauthorizedException(
+        apiError(
+          EErrorCodes.INVALID_REQUEST,
+          'Test user not found. Run seed first: npm run seed',
+        ),
+      );
+    }
 
     return this.buildAuthResponse(user);
   }
