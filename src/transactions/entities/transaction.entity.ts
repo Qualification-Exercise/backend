@@ -4,10 +4,8 @@ import {
   Column,
   CreateDateColumn,
   ManyToOne,
-  OneToMany,
 } from 'typeorm';
 import { Wallet } from '@/wallets/entities/wallet.entity';
-import { Coupon } from '@/coupons/entities/coupon.entity';
 
 @Entity('transactions')
 export class Transaction {
@@ -45,7 +43,4 @@ export class Transaction {
     onDelete: 'CASCADE',
   })
   wallet: Wallet;
-
-  @OneToMany(() => Coupon, (coupon) => coupon.sourceTransaction)
-  coupons: Coupon[];
 }
