@@ -209,11 +209,13 @@ src/
 | `REDIS_PASSWORD` | `` | Redis password (empty if none) |
 | **Auth (OIDC/JWT)** |
 | `JWT_SECRET` | (min 32 chars) | Secret for signing JWTs |
-| `JWT_EXPIRATION` | `3600` | Token TTL in seconds |
+| `JWT_EXPIRATION` | `3600` | Access token TTL in seconds |
+| `REFRESH_TOKEN_EXPIRATION` | `604800` | Refresh token TTL in seconds (7 days) |
 | `AUTH_PROVIDER` | `auth0` | Auth provider (`auth0`, `keycloak`, `cognito`) |
 | `AUTH_ISSUER` | `https://your-auth-provider.auth0.com/` | OIDC issuer URL |
 | `AUTH_AUDIENCE` | `https://your-backend-api` | JWT audience claim |
 | `JWKS_URI` | `https://your-auth-provider.auth0.com/.well-known/jwks.json` | JWKS endpoint for public keys |
+| `GOOGLE_CLIENT_ID` | `...apps.googleusercontent.com` | Google OAuth client ID for `POST /auth/google` |
 | **Encryption** |
 | `SEED_BACKUP_ENCRYPTION_KEY` | (min 32 chars) | Key for encrypting seed phrases |
 | **Indexer** |
@@ -321,6 +323,67 @@ Configuration is driven entirely by environment variables:
    - Audience claim
    - Expiration
 4. Request continues with `req.user` populated
+
+### Google Sign-In
+
+The `POST /auth/google` endpoint accepts a Google ID token from the client and returns access + refresh JWT tokens:
+
+```bash
+# Request
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"googleToken":"eyJhbGciOiJSUzI1NiIsImtpZCI6IjEyMzQ1..."}' \
+  localhost:3000/auth/google
+
+# Response (201)
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "firstName": "John",
+    "lastName": "Doe"
+  }
+}
+
+# Error responses:
+# 400 - Missing or empty googleToken
+# 401 - Invalid/expired Google token, or unverified email
+# 502 - Could not reach Google to verify token
+```
+
+**Key behaviors:**
+- First-time login with a new email creates a new user automatically.
+- Subsequent logins with the same Google account return the same user.
+- If the email already exists under a different auth provider, the Google login "links" the accounts by updating the user's `externalAuthId`.
+- Only verified Google emails are accepted (Google's `email_verified` claim must be true).
+
+### Refresh Token
+
+The `POST /auth/refresh` endpoint redeems a refresh token for a new access + refresh pair:
+
+```bash
+# Request
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"refreshToken":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}' \
+  localhost:3000/auth/refresh
+
+# Response (200)
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "firstName": "John",
+    "lastName": "Doe"
+  }
+}
+
+# Error responses:
+# 400 - Missing or empty refreshToken
+# 401 - Invalid/expired refresh token, or wrong token type
+```
 
 ### Protected Endpoints
 
@@ -507,6 +570,13 @@ when the indexer drops old records.
 > the ref from a real vout on its own node would compute different bytes. Confirm
 > with the indexer and contract owners.
 
+Use the access token in the `Authorization: Bearer <token>` header:
+
+```bash
+curl -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:3000/users/me
+# Response: { "id": "...", "email": "...", "firstName": "...", "lastName": "..." }
+```
+
 ## Wallet Mapping (BE-05)
 
 The only place a user proves control of an address. The claim path carries no
@@ -554,10 +624,10 @@ Properties worth knowing:
 
 ### TODO: Authentication Implementation
 
+- [x] Implement user creation on first login (`POST /auth/google` with auto-register)
+- [x] Add refresh token support (`POST /auth/refresh`)
 - [ ] Implement OIDC authorization code exchange (`POST /auth/token`)
 - [ ] Add JWKS caching with TTL
-- [ ] Implement user creation on first login (`POST /auth/session`; `validate()` only looks up)
-- [ ] Add refresh token support (if provider supports)
 - [ ] Add logout endpoint (invalidate tokens in Redis)
 - [ ] Add rate limiting on auth endpoints
 
@@ -614,9 +684,10 @@ docker compose -f infra/docker-compose.yml logs -f postgres  # Tail logs
 ## Roadmap / TODOs
 
 ### Core Auth & Users
-- [ ] Implement `auth/` module: OIDC code exchange, token validation
-- [ ] Implement `users/` module: user creation on first login, profile endpoints
-- [ ] Add refresh token / logout flow
+- [x] Implement `auth/` module: Google sign-in, token validation, refresh flow
+- [x] Implement `users/` module: user creation on first login, profile endpoints (`GET /users/me`)
+- [x] Add refresh token support (`POST /auth/refresh`)
+- [ ] Add logout endpoint (invalidate tokens in Redis)
 
 ### Wallet Management
 - [ ] Implement `wallets/` module: wallet creation, seed encryption

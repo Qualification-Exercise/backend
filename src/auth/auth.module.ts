@@ -6,6 +6,7 @@ import { Env } from '@/config/env';
 import { JwtStrategy } from './guards/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthService } from './services/auth.service';
+import { GoogleTokenVerifierService } from './services/google-token-verifier.service';
 import { AuthController } from './controllers/auth.controller';
 import { UsersModule } from '@/users/users.module';
 
@@ -21,7 +22,12 @@ import { UsersModule } from '@/users/users.module';
       }),
     }),
   ],
-  providers: [JwtStrategy, JwtAuthGuard, AuthService],
+  providers: [
+    JwtStrategy,
+    JwtAuthGuard,
+    AuthService,
+    GoogleTokenVerifierService,
+  ],
   controllers: [AuthController],
   exports: [JwtAuthGuard, AuthService],
 })
