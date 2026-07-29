@@ -11,11 +11,11 @@ import {
 import { MerchantEntity } from '@/merchants/entities/merchant.entity';
 
 @Entity('indexer_cursors')
-@Index('IDX_indexer_cursors_merchant_chain_token', [
-  'merchantId',
-  'srcChainId',
-  'tokenAddress',
-])
+@Index(
+  'IDX_indexer_cursors_merchant_chain_token',
+  ['merchantId', 'srcChainId', 'tokenAddress'],
+  { unique: true },
+)
 export class IndexerCursorEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
