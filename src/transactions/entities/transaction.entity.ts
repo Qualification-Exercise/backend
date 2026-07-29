@@ -38,7 +38,7 @@ export class Transaction {
   })
   status: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   @ManyToOne(() => Wallet, (wallet) => wallet.transactions, {

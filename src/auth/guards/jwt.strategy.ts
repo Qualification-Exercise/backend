@@ -1,12 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, ExtractJwt } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { Env } from '@/config/env';
+import { UsersService } from '@/users/services/users.service';
+import type { IAuthUser } from '@/auth/decorators/current-user.decorator';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(configService: ConfigService<Env>) {
+  constructor(
+    configService: ConfigService<Env>,
+    private readonly usersService: UsersService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -16,17 +21,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: any) {
+  // Resolves the IdP `sub` to our internal user ID; unknown `sub`s are unauthorized, as user creation belongs to the auth session flow.
+  async validate(payload: { sub: string; email?: string }): Promise<IAuthUser> {
+    const user = await this.usersService.findByExternalAuthId(payload.sub);
+    if (!user) throw new UnauthorizedException();
 
-    // TODO: implement user lookup/creation logic in validate
-    // The payload contains:
-    // - sub: external user ID from auth provider
-    // - email: user email
-    // - other provider-specific claims
     return {
-      userId: payload.sub,
-      email: payload.email,
-      ...payload,
+      userId: user.id,
+      externalAuthId: user.externalAuthId,
+      email: user.email,
     };
   }
 }

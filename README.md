@@ -332,11 +332,56 @@ async getProfile(@Request() req: any) {
 }
 ```
 
+## Wallet Mapping (BE-05)
+
+The only place a user proves control of an address. The claim path carries no
+per-claim user signature (contracts spec §5.1), so this handshake is what binds a
+payout recipient to a person — and what lets the Payment Poller answer "whose
+payment was that?" from a `from` address.
+
+| Method | Path                 | Purpose                                        |
+| ------ | -------------------- | ---------------------------------------------- |
+| `GET`  | `/wallets/challenge` | Single-use, 5-minute nonce to sign             |
+| `POST` | `/wallets`           | Link an address, proven by a signed challenge  |
+| `GET`  | `/wallets`           | The caller's mappings only                     |
+
+```bash
+# 1. get a challenge
+curl -H "Authorization: Bearer $JWT" localhost:3000/wallets/challenge
+# -> { "challengeId": "...", "nonce": "0x...", "expiresAt": "..." }
+
+# 2. sign ownershipMessage(nonce) with the wallet, then
+curl -X POST -H "Authorization: Bearer $JWT" -H 'Content-Type: application/json' \
+  -d '{"address":"0x...","challengeId":"...","signature":"0x..."}' \
+  localhost:3000/wallets
+```
+
+The exact string to sign comes from `ownershipMessage(nonce)` in
+`src/wallets/address.ts` — the client must build it the same way.
+
+Properties worth knowing:
+
+- The challenge is spent **before** the signature is checked, so a failed proof
+  burns the nonce instead of allowing unlimited attempts against one message.
+- Address **validity** comes from `@tetherto/wdk-utils` (`validateEVMAddress`,
+  `validateTronAddress`, `validateBitcoinAddress`, `validateSparkAddress`) — the same
+  checks the WDK wallet SDK runs on the device, so the two cannot disagree.
+- Address **canonical form** is ours, because WDK validates but does not encode
+  (`normalizeAddress`): EIP-55 checksum for EVM, base58check for Tron (the `41…` hex
+  form is converted), lower-case bech32/bech32m for Bitcoin/Spark. base58check
+  addresses are case-sensitive and are never re-cased.
+- `address` is globally unique in the database. A second user claiming it gets
+  `409 ADDRESS_ALREADY_LINKED` **and** a `security_event=wallet.address_already_linked`
+  log line.
+- Bitcoin/Spark ownership proofs return `501 WALLET_PROOF_UNSUPPORTED` until the
+  device-side message-signing format (BIP-137 vs BIP-322 vs WDK SDK) is pinned.
+  Normalisation for those families already works.
+
 ### TODO: Authentication Implementation
 
 - [ ] Implement OIDC authorization code exchange (`POST /auth/token`)
 - [ ] Add JWKS caching with TTL
-- [ ] Implement user lookup/creation on first login (auth strategy `validate()`)
+- [ ] Implement user creation on first login (`POST /auth/session`; `validate()` only looks up)
 - [ ] Add refresh token support (if provider supports)
 - [ ] Add logout endpoint (invalidate tokens in Redis)
 - [ ] Add rate limiting on auth endpoints
