@@ -10,10 +10,11 @@ import {
 import { ClaimEntity } from '@/claims/entities/claim.entity';
 
 @Entity('attestations')
-@Index('IDX_attestations_claim_id_issuer_address', [
-  'claimId',
-  'issuerAddress',
-])
+@Index(
+  'IDX_attestations_claim_id_issuer_address',
+  ['claimId', 'issuerAddress'],
+  { unique: true },
+)
 export class AttestationEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

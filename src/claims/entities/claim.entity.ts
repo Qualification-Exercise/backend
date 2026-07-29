@@ -27,10 +27,10 @@ export class ClaimEntity {
   recipient: string;
 
   @Column({ name: 'amount', type: 'decimal', precision: 40, scale: 0 })
-  amount: string;
+  amount: string; // Wei-level precision (no decimal places); frozen at claim creation for relayer
 
   @Column({ name: 'deadline', type: 'bigint' })
-  deadline: number;
+  deadline: number; // Unix timestamp in seconds
 
   @Column({
     name: 'status',
