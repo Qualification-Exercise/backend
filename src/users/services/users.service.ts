@@ -1,8 +1,18 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from '@/users/entities/user.entity';
 
 @Injectable()
 export class UsersService {
-  // TODO: inject repository when implementing user management methods
+  constructor(
+    @InjectRepository(User)
+    private readonly users: Repository<User>,
+  ) {}
 
-  // TODO: implement user management methods
+  findByExternalAuthId(externalAuthId: string): Promise<User | null> {
+    return this.users.findOne({ where: { externalAuthId } });
+  }
+
+  // TODO: implement remaining user management methods
 }

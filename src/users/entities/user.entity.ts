@@ -20,10 +20,10 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @OneToMany(() => Wallet, (wallet) => wallet.user)
