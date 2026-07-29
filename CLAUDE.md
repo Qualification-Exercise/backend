@@ -28,7 +28,14 @@ This document guides Claude Code on how to work effectively with this project.
 ### Class & Type Naming (PascalCase with Prefixes)
 - **Classes**: `PascalCase` (e.g., `UserService`, `CouponRepo`, `UsersController`)
 - **Interfaces**: `IPascalCase` (e.g., `ICreateUserParams`, `ICouponResponse`) — **MUST start with I**
+  - **RULE: All interfaces MUST be in separate `*.interface.ts` files, never inline in service/controller files**
+  - Example: `IAuthResponse` lives in `src/auth/interfaces/auth-response.interface.ts`, not in `auth.service.ts`
+  - Export interfaces from their definition files; re-export from service if needed (`export type { IAuthResponse }`)
 - **Enums**: `EPascalCase` (e.g., `ECouponStatus`, `EErrorCodes`) — **MUST start with E**
+  - **RULE: Error codes MUST be centralized in `src/common/enums/error-codes.enum.ts` (not per-module)**
+  - Never hardcode error code strings (e.g., `'INVALID_TOKEN'`) — always use `EErrorCodes.INVALID_TOKEN`
+  - Example usage: `throw new UnauthorizedException(apiError(EErrorCodes.INVALID_GOOGLE_TOKEN, 'message'))`
+  - Add new error codes to the global enum; import it via `@/common/enums/error-codes.enum`
 - **Types**: `PascalCase` (e.g., `UserResponse`, `CouponData`)
 - **Constants**: `UPPER_SNAKE_CASE` (e.g., `MAX_RETRY_ATTEMPTS`, `DEFAULT_TIMEOUT`)
 - **Variables/Functions**: `camelCase` (e.g., `getUserById`, `findActiveUsers`)
