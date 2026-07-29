@@ -7,6 +7,9 @@ import { WalletsModule } from '@/wallets/wallets.module';
 import { TransactionsModule } from '@/transactions/transactions.module';
 import { CouponsModule } from '@/coupons/coupons.module';
 import { IndexerModule } from '@/indexer/indexer.module';
+import { PaymentsModule } from '@/payments/payments.module';
+import { PricingModule } from '@/pricing/pricing.module';
+import { AppConfigModule } from '@/config/config.module';
 import { AuthModule } from '@/auth/auth.module';
 import { HealthModule } from '@/health/health.module';
 
@@ -24,6 +27,9 @@ import { HealthModule } from '@/health/health.module';
     TransactionsModule,
     CouponsModule,
     IndexerModule,
+    PaymentsModule,
+    PricingModule,
+    AppConfigModule,
     HealthModule,
   ],
 })
