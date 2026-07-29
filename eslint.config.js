@@ -1,26 +1,42 @@
-const tsPlugin = require('@typescript-eslint/eslint-plugin');
-const tsParser = require('@typescript-eslint/parser');
-const prettierRecommended = require('eslint-plugin-prettier/recommended');
+const js = require('@eslint/js');
+const tseslint = require('typescript-eslint');
+const prettier = require('eslint-plugin-prettier');
 
 module.exports = [
-  { ignores: ['dist/**', 'coverage/**', 'node_modules/**'] },
+  {
+    ignores: ['dist', 'node_modules', 'coverage'],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
   {
     files: ['**/*.ts'],
     languageOptions: {
-      parser: tsParser,
-      parserOptions: { project: 'tsconfig.json', sourceType: 'module' },
+      parser: tseslint.parser,
+      parserOptions: {
+        project: 'tsconfig.json',
+        sourceType: 'module',
+      },
+      globals: {
+        node: true,
+      },
     },
-    plugins: { '@typescript-eslint': tsPlugin },
+    plugins: {
+      '@typescript-eslint': tseslint.plugin,
+      prettier: prettier,
+    },
     rules: {
-      ...tsPlugin.configs.recommended.rules,
+      '@typescript-eslint/interface-name-prefix': 'off',
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
+      'prettier/prettier': [
+        'error',
+        {
+          singleQuote: true,
+          trailingComma: 'all',
+          printWidth: 80,
+        },
+      ],
     },
   },
-  {
-    files: ['test/**/*.ts'],
-    languageOptions: { parserOptions: { project: null } },
-  },
-  prettierRecommended,
 ];
