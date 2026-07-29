@@ -250,6 +250,8 @@ refactor: simplify wallet service
 
 Include ticket key in commit scope when applicable: `feat(PHIL-123):`
 
+**DO NOT** add Claude as co-author in commits. Only user commits count.
+
 **Before Committing**:
 - Lint passes: `npm run lint:fix`
 - Tests pass: `npm run test`
