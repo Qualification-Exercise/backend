@@ -2,6 +2,8 @@ import {
   Injectable,
   ServiceUnavailableException,
   UnauthorizedException,
+  BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OAuth2Client } from 'google-auth-library';
@@ -9,6 +11,7 @@ import { apiError } from '@/common/api-error';
 import { Env } from '@/config/env';
 import { IGoogleProfile } from '../interfaces/google-profile.interface';
 import { EErrorCodes } from '@/common/enums/error-codes.enum';
+import { EClientType } from '../enums/client-type.enum';
 
 function isNetworkError(err: unknown): boolean {
   const networkErrorCodes = [
@@ -21,25 +24,70 @@ function isNetworkError(err: unknown): boolean {
   return code ? networkErrorCodes.includes(code) : false;
 }
 
+interface ClientConfig {
+  id: string;
+  client: OAuth2Client;
+}
+
 @Injectable()
 export class GoogleTokenVerifierService {
-  private readonly client: OAuth2Client;
-  private readonly googleClientId: string;
+  private readonly logger = new Logger(GoogleTokenVerifierService.name);
+  private readonly clientConfigs: Partial<Record<EClientType, ClientConfig>>;
 
   constructor(configService: ConfigService<Env>) {
-    this.googleClientId = configService.get('GOOGLE_CLIENT_ID')!;
-    this.client = new OAuth2Client(this.googleClientId);
+    const webClientId = configService.get('GOOGLE_WEB_CLIENT_ID');
+
+    this.clientConfigs = {
+      [EClientType.IOS]: {
+        id: configService.get('GOOGLE_IOS_CLIENT_ID')!,
+        client: new OAuth2Client(configService.get('GOOGLE_IOS_CLIENT_ID')!),
+      },
+      [EClientType.ANDROID]: {
+        id: configService.get('GOOGLE_ANDROID_CLIENT_ID')!,
+        client: new OAuth2Client(
+          configService.get('GOOGLE_ANDROID_CLIENT_ID')!,
+        ),
+      },
+    };
+
+    if (webClientId) {
+      this.clientConfigs[EClientType.WEB] = {
+        id: webClientId,
+        client: new OAuth2Client(webClientId),
+      };
+    }
   }
 
-  async verifyIdToken(idToken: string): Promise<IGoogleProfile> {
+  private getConfigForType(type: EClientType): ClientConfig {
+    const config = this.clientConfigs[type];
+    if (!config) {
+      throw new BadRequestException(
+        apiError(
+          EErrorCodes.INVALID_REQUEST,
+          `Client type '${type}' is not configured`,
+        ),
+      );
+    }
+    return config;
+  }
+
+  async verifyIdTokenForProfile(
+    idToken: string,
+    type: EClientType,
+  ): Promise<IGoogleProfile> {
+    const config = this.getConfigForType(type);
+
     let ticket;
     try {
-      ticket = await this.client.verifyIdToken({
+      ticket = await config.client.verifyIdToken({
         idToken,
-        audience: this.googleClientId,
+        audience: config.id,
       });
     } catch (err) {
       if (isNetworkError(err)) {
+        this.logger.error(
+          `Google verification network error: ${(err as Error).message}`,
+        );
         throw new ServiceUnavailableException(
           apiError(
             EErrorCodes.GOOGLE_UNAVAILABLE,
@@ -47,10 +95,11 @@ export class GoogleTokenVerifierService {
           ),
         );
       }
+      this.logger.warn(`Invalid Google ID token for type=${type}`);
       throw new UnauthorizedException(
         apiError(
           EErrorCodes.INVALID_GOOGLE_TOKEN,
-          'Google token is invalid or expired',
+          'Google ID token is invalid or expired',
         ),
       );
     }
@@ -60,7 +109,16 @@ export class GoogleTokenVerifierService {
       throw new UnauthorizedException(
         apiError(
           EErrorCodes.INVALID_GOOGLE_TOKEN,
-          'Google token is invalid or expired',
+          'Google ID token is invalid or expired',
+        ),
+      );
+    }
+
+    if (!payload.email_verified) {
+      throw new UnauthorizedException(
+        apiError(
+          EErrorCodes.EMAIL_NOT_VERIFIED,
+          'Google email is not verified',
         ),
       );
     }

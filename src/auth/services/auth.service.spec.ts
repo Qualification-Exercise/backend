@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { GoogleTokenVerifierService } from './google-token-verifier.service';
 import { UsersService } from '@/users/services/users.service';
 import { User } from '@/users/entities/user.entity';
+import { EClientType } from '../enums/client-type.enum';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -50,7 +51,7 @@ describe('AuthService', () => {
         {
           provide: GoogleTokenVerifierService,
           useValue: {
-            verifyIdToken: jest.fn(),
+            verifyIdTokenForProfile: jest.fn(),
           },
         },
       ],
@@ -87,14 +88,14 @@ describe('AuthService', () => {
       } as User;
 
       jest
-        .spyOn(googleVerifier, 'verifyIdToken')
+        .spyOn(googleVerifier, 'verifyIdTokenForProfile')
         .mockResolvedValue(googleProfile);
       jest.spyOn(usersService, 'findByExternalAuthId').mockResolvedValue(null);
       jest.spyOn(usersService, 'findByEmail').mockResolvedValue(null);
       jest.spyOn(usersService, 'create').mockResolvedValue(newUser);
       jest.spyOn(jwtService, 'sign').mockReturnValue('token');
 
-      const result = await service.googleLogin('google-token');
+      const result = await service.googleLogin('id-token', EClientType.IOS);
 
       expect(result).toEqual({
         accessToken: 'token',
@@ -124,18 +125,16 @@ describe('AuthService', () => {
       } as User;
 
       jest
-        .spyOn(googleVerifier, 'verifyIdToken')
+        .spyOn(googleVerifier, 'verifyIdTokenForProfile')
         .mockResolvedValue(googleProfile);
-      jest
-        .spyOn(usersService, 'findByExternalAuthId')
-        .mockResolvedValue(existingUser);
+      jest.spyOn(usersService, 'findByEmail').mockResolvedValue(existingUser);
       jest.spyOn(jwtService, 'sign').mockReturnValue('token');
 
-      const result = await service.googleLogin('google-token');
+      const result = await service.googleLogin('id-token', EClientType.ANDROID);
 
       expect(result.user.id).toBe('existing-user-id');
-      expect(usersService.findByEmail).not.toHaveBeenCalled();
       expect(usersService.create).not.toHaveBeenCalled();
+      expect(usersService.updateExternalAuthId).not.toHaveBeenCalled();
     });
 
     it('should link accounts and log security event when email exists under different externalAuthId', async () => {
@@ -153,9 +152,8 @@ describe('AuthService', () => {
       } as User;
 
       jest
-        .spyOn(googleVerifier, 'verifyIdToken')
+        .spyOn(googleVerifier, 'verifyIdTokenForProfile')
         .mockResolvedValue(googleProfile);
-      jest.spyOn(usersService, 'findByExternalAuthId').mockResolvedValue(null);
       jest.spyOn(usersService, 'findByEmail').mockResolvedValue(existingUser);
       jest
         .spyOn(usersService, 'updateExternalAuthId')
@@ -163,7 +161,7 @@ describe('AuthService', () => {
       jest.spyOn(jwtService, 'sign').mockReturnValue('token');
       const loggerSpy = jest.spyOn(service['logger'], 'warn');
 
-      const result = await service.googleLogin('google-token');
+      const result = await service.googleLogin('id-token', EClientType.WEB);
 
       expect(result.user.id).toBe('existing-user-id');
       expect(usersService.updateExternalAuthId).toHaveBeenCalledWith(
@@ -175,17 +173,14 @@ describe('AuthService', () => {
       );
     });
 
-    it('should reject unverified email', async () => {
-      const unverifiedProfile = { ...googleProfile, emailVerified: false };
-
+    it('should reject unverified email from verifier', async () => {
       jest
-        .spyOn(googleVerifier, 'verifyIdToken')
-        .mockResolvedValue(unverifiedProfile);
+        .spyOn(googleVerifier, 'verifyIdTokenForProfile')
+        .mockRejectedValue(new UnauthorizedException('Email is not verified'));
 
-      await expect(service.googleLogin('google-token')).rejects.toThrow(
-        UnauthorizedException,
-      );
-      expect(usersService.findByExternalAuthId).not.toHaveBeenCalled();
+      await expect(
+        service.googleLogin('id-token', EClientType.IOS),
+      ).rejects.toThrow(UnauthorizedException);
       expect(usersService.findByEmail).not.toHaveBeenCalled();
       expect(usersService.create).not.toHaveBeenCalled();
     });
@@ -203,6 +198,7 @@ describe('AuthService', () => {
     it('should return new tokens for valid refresh token', async () => {
       jest.spyOn(jwtService, 'verifyAsync').mockResolvedValue({
         sub: 'google-123',
+        userId: 'user-id',
         email: 'test@example.com',
         type: 'refresh',
       } as never);
@@ -226,6 +222,7 @@ describe('AuthService', () => {
     it('should reject access token when used as refresh token', async () => {
       jest.spyOn(jwtService, 'verifyAsync').mockResolvedValue({
         sub: 'google-123',
+        userId: 'user-id',
         email: 'test@example.com',
         type: undefined,
       } as never);
@@ -239,6 +236,7 @@ describe('AuthService', () => {
     it('should reject token with type=access', async () => {
       jest.spyOn(jwtService, 'verifyAsync').mockResolvedValue({
         sub: 'google-123',
+        userId: 'user-id',
         email: 'test@example.com',
         type: 'access',
       } as never);
@@ -261,6 +259,7 @@ describe('AuthService', () => {
     it('should reject if user not found by externalAuthId', async () => {
       jest.spyOn(jwtService, 'verifyAsync').mockResolvedValue({
         sub: 'google-123',
+        userId: 'user-id',
         email: 'test@example.com',
         type: 'refresh',
       } as never);
@@ -291,7 +290,7 @@ describe('AuthService', () => {
       // First call: access token
       expect(signSpy).toHaveBeenNthCalledWith(
         1,
-        { sub: 'google-123', email: 'test@example.com' },
+        { sub: 'google-123', userId: 'user-id', email: 'test@example.com' },
         {
           expiresIn: 3600,
           issuer: 'https://test.example.com',
@@ -302,7 +301,12 @@ describe('AuthService', () => {
       // Second call: refresh token
       expect(signSpy).toHaveBeenNthCalledWith(
         2,
-        { sub: 'google-123', email: 'test@example.com', type: 'refresh' },
+        {
+          sub: 'google-123',
+          userId: 'user-id',
+          email: 'test@example.com',
+          type: 'refresh',
+        },
         {
           expiresIn: 604800,
           issuer: 'https://test.example.com',

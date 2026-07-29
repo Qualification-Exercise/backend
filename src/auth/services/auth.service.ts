@@ -6,6 +6,7 @@ import { Env } from '@/config/env';
 import { UsersService } from '@/users/services/users.service';
 import { User } from '@/users/entities/user.entity';
 import { GoogleTokenVerifierService } from './google-token-verifier.service';
+import { EClientType } from '../enums/client-type.enum';
 import {
   IJwtPayload,
   IAuthResponse,
@@ -25,36 +26,28 @@ export class AuthService {
     private readonly googleVerifier: GoogleTokenVerifierService,
   ) {}
 
-  async googleLogin(googleToken: string): Promise<IAuthResponse> {
-    const profile = await this.googleVerifier.verifyIdToken(googleToken);
-    if (!profile.emailVerified) {
-      throw new UnauthorizedException(
-        apiError(
-          EErrorCodes.EMAIL_NOT_VERIFIED,
-          'Google email is not verified',
-        ),
-      );
-    }
+  async googleLogin(
+    idToken: string,
+    type: EClientType,
+  ): Promise<IAuthResponse> {
+    const profile = await this.googleVerifier.verifyIdTokenForProfile(
+      idToken,
+      type,
+    );
 
-    let user = await this.usersService.findByExternalAuthId(profile.sub);
+    let user = await this.usersService.findByEmail(profile.email);
     if (!user) {
-      const existing = await this.usersService.findByEmail(profile.email);
-      if (existing) {
-        this.logger.warn(
-          `security_event=auth.account_linked userId=${existing.id} oldExternalAuthId=${existing.externalAuthId} newExternalAuthId=${profile.sub}`,
-        );
-        user = await this.usersService.updateExternalAuthId(
-          existing.id,
-          profile.sub,
-        );
-      } else {
-        user = await this.usersService.create({
-          externalAuthId: profile.sub,
-          email: profile.email,
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-        });
-      }
+      user = await this.usersService.create({
+        externalAuthId: profile.sub,
+        email: profile.email,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+      });
+    } else if (user.externalAuthId !== profile.sub) {
+      this.logger.warn(
+        `security_event=auth.account_linked userId=${user.id} oldExternalAuthId=${user.externalAuthId} newExternalAuthId=${profile.sub}`,
+      );
+      user = await this.usersService.updateExternalAuthId(user.id, profile.sub);
     }
 
     return this.buildAuthResponse(user);
@@ -97,7 +90,11 @@ export class AuthService {
   }
 
   private buildAuthResponse(user: User): IAuthResponse {
-    const claims = { sub: user.externalAuthId, email: user.email };
+    const claims = {
+      sub: user.externalAuthId,
+      userId: user.id,
+      email: user.email,
+    };
     const accessToken = this.jwtService.sign(claims, {
       expiresIn: this.configService.get('JWT_EXPIRATION'),
       issuer: this.configService.get('AUTH_ISSUER'),
