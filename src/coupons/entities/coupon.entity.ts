@@ -3,12 +3,35 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  Index,
   ManyToOne,
   OneToOne,
+  UpdateDateColumn,
 } from 'typeorm';
 import { User } from '@/users/entities/user.entity';
-import { Transaction } from '@/transactions/entities/transaction.entity';
 import { UtilityTokenClaim } from './utility-token-claim.entity';
+
+/**
+ * ```
+ * PENDING -> ISSUED -> PENDING_ATTESTATION -> ATTESTED -> CLAIM_SUBMITTED -> CLAIMED
+ *              ^             |                    |             |
+ *              +------- (issuer rejection / deadline / reorg / tx failure)
+ *
+ * any -> EXPIRED / ORPHANED
+ * ```
+ * The migration installs a trigger that rejects any transition not on this list,
+ * so an illegal move fails at the database rather than in whichever service got
+ * its state handling wrong.
+ */
+export type CouponStatus =
+  | 'PENDING'
+  | 'ISSUED'
+  | 'PENDING_ATTESTATION'
+  | 'ATTESTED'
+  | 'CLAIM_SUBMITTED'
+  | 'CLAIMED'
+  | 'EXPIRED'
+  | 'ORPHANED';
 
 @Entity('coupons')
 export class Coupon {
@@ -16,40 +39,36 @@ export class Coupon {
   id: string;
 
   @Column({ unique: true })
+  paymentRef: string;
+
+  @Column({ unique: true })
   code: string;
 
-  @Column('decimal', { precision: 18, scale: 8 })
-  value: string;
-
-  @Column({ enum: ['BTC', 'USDT'] })
-  asset: string;
-
-  @Column({
-    enum: ['issued', 'claimed', 'expired'],
-    default: 'issued',
-  })
-  status: string;
-
-  @Column({ nullable: true })
-  sourceTransactionId: string;
-
+  @Index()
   @Column()
   userId: string;
+
+  @Column({ type: 'numeric', precision: 78, scale: 0 })
+  amount: string;
+
+  @Column()
+  asset: string;
+
+  @Index()
+  @Column({ type: 'varchar', default: 'ISSUED' })
+  status: CouponStatus;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @Column({ nullable: true })
-  expiresAt: Date;
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt: Date;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  expiresAt: Date | null;
 
   @ManyToOne(() => User, (user) => user.coupons, { onDelete: 'CASCADE' })
   user: User;
-
-  @ManyToOne(() => Transaction, (transaction) => transaction.coupons, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
-  sourceTransaction: Transaction;
 
   @OneToOne(() => UtilityTokenClaim, (claim) => claim.coupon, {
     nullable: true,

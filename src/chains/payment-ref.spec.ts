@@ -6,6 +6,7 @@ import {
   chainByIndexerName,
   chainBySrcChainId,
   indexerPath,
+  normalizeTxHash,
   paymentRef,
 } from '@/chains';
 
@@ -30,18 +31,28 @@ interface IFixture {
   }[];
 }
 
+/**
+ * A developer without the contracts repo checked out beside this one should not
+ * be blocked — but the cross-check must still run wherever the fixture exists,
+ * and CI checks it out on purpose. Skipping unconditionally would retire the
+ * only thing that catches drift between this library and PaymentRef.t.sol.
+ */
 let fixture: IFixture = { registry: [], vectors: [] };
+let fixtureAvailable = true;
 try {
   fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
 } catch {
-  // Fixtures not available - tests will be skipped
+  fixtureAvailable = false;
+  console.warn(
+    `payment-refs.json not found at ${FIXTURE_PATH}; contract cross-check skipped. ` +
+      'Check out Qualification-Exercise/contracts beside this repo, or set PAYMENT_REFS_FIXTURE.',
+  );
 }
 
-describe.skip('paymentRef', () => {
-  const hasFixture = fixture.vectors.length > 0;
-  const test = hasFixture ? it : it.skip;
+const describeVectors = fixtureAvailable ? describe : describe.skip;
 
-  test.each(fixture.vectors.map((v) => [`${v.chain} — ${v.note}`, v] as const))(
+describeVectors('paymentRef', () => {
+  it.each(fixture.vectors.map((v) => [`${v.chain} — ${v.note}`, v] as const))(
     'matches the committed contract vector: %s',
     (_label, v) => {
       expect(paymentRef(v.srcChainId, v.txHash, v.outputIndex)).toBe(
@@ -50,50 +61,50 @@ describe.skip('paymentRef', () => {
     },
   );
 
-  test('covers every registry chain', () => {
-    for (const chain of fixture.registry) {
-      expect(chainBySrcChainId(chain.srcChainId)).toBeDefined();
-    }
+  it('covers every registry chain', () => {
+    const covered = new Set(fixture.vectors.map((v) => v.srcChainId));
+    expect([...covered].sort()).toEqual(CHAINS.map((c) => c.srcChainId).sort());
   });
 
-  test('derives a distinct ref per output index in one tx', () => {
-    const ref0 = paymentRef(11155111, '0xabc', 0);
-    const ref1 = paymentRef(11155111, '0xabc', 1);
-    expect(ref0).not.toBe(ref1);
-  });
-
-  test('accepts an un-prefixed, upper-case txid (Bitcoin RPC display form)', () => {
-    const lower =
-      '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
-    const upper =
-      'ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890';
-    expect(paymentRef(1, lower, 0)).toBe(paymentRef(1, upper, 0));
-  });
-
-  test('never reverses txid byte order', () => {
-    const forward = paymentRef(
-      11155111,
-      '0x0102030405060708090a0b0c0d0e0f10',
-      0,
+  it('derives a distinct ref per output index in one tx', () => {
+    const { srcChainId, txHash } = fixture.vectors[0];
+    expect(paymentRef(srcChainId, txHash, 0)).not.toBe(
+      paymentRef(srcChainId, txHash, 1),
     );
-    const reversed = paymentRef(
-      11155111,
-      '0x100f0e0d0c0b0a09080706050403020l',
-      0,
-    );
-    expect(forward).not.toBe(reversed);
   });
 
-  test('rejects unknown chain ids and malformed input', () => {
-    expect(() => paymentRef(999999, '0xabc', 0)).toThrow();
+  it('accepts an un-prefixed, upper-case txid (Bitcoin RPC display form)', () => {
+    const btc = fixture.vectors.find((v) => v.chain === 'Bitcoin')!;
+    const bare = btc.txHash.slice(2).toUpperCase();
+    expect(paymentRef(btc.srcChainId, bare, btc.outputIndex)).toBe(
+      btc.paymentRef,
+    );
+  });
+
+  it('never reverses txid byte order', () => {
+    const btc = fixture.vectors.find((v) => v.chain === 'Bitcoin')!;
+    const reversed = `0x${(btc.txHash.slice(2).match(/../g) ?? []).reverse().join('')}`;
+    expect(paymentRef(btc.srcChainId, reversed, btc.outputIndex)).not.toBe(
+      btc.paymentRef,
+    );
+    expect(normalizeTxHash(btc.txHash)).toBe(btc.txHash.toLowerCase());
+  });
+
+  it('rejects unknown chain ids and malformed input', () => {
+    expect(() => paymentRef(1, fixture.vectors[0].txHash, 0)).toThrow(
+      /Unknown srcChainId/,
+    );
+    expect(() => paymentRef(11155111, '0xdeadbeef', 0)).toThrow(
+      /32 bytes of hex/,
+    );
+    expect(() => paymentRef(11155111, fixture.vectors[0].txHash, -1)).toThrow(
+      /non-negative/,
+    );
   });
 });
 
-describe('chain registry', () => {
-  const hasFixture = fixture.registry.length > 0;
-  const test = hasFixture ? it : it.skip;
-
-  test('matches the committed registry', () => {
+describeVectors('chain registry', () => {
+  it('matches the committed registry', () => {
     expect(
       CHAINS.map((c) => ({
         chain: c.name,
