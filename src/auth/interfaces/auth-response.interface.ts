@@ -11,6 +11,7 @@ export interface IAuthResponse {
 
 export interface IJwtPayload {
   sub: string;
+  userId: string;
   email?: string;
   type?: 'refresh';
 }
