@@ -35,4 +35,16 @@ export class AuthController {
   refresh(@Body() dto: RefreshTokenDto): Promise<IAuthResponse> {
     return this.authService.refreshTokens(dto.refreshToken);
   }
+
+  @Post('dev/test-token')
+  @ApiEndpoint({
+    summary: 'Generate test token (development only)',
+    description:
+      'Issues test tokens for development. Only available in dev mode.',
+    responseType: AuthTokenResponseDto,
+    includeAuth: false,
+  })
+  testToken(): Promise<IAuthResponse> {
+    return this.authService.generateDevTestToken();
+  }
 }
