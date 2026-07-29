@@ -31,9 +31,27 @@ interface IFixture {
   }[];
 }
 
-const fixture: IFixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
+/**
+ * A developer without the contracts repo checked out beside this one should not
+ * be blocked — but the cross-check must still run wherever the fixture exists,
+ * and CI checks it out on purpose. Skipping unconditionally would retire the
+ * only thing that catches drift between this library and PaymentRef.t.sol.
+ */
+let fixture: IFixture = { registry: [], vectors: [] };
+let fixtureAvailable = true;
+try {
+  fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
+} catch {
+  fixtureAvailable = false;
+  console.warn(
+    `payment-refs.json not found at ${FIXTURE_PATH}; contract cross-check skipped. ` +
+      'Check out Qualification-Exercise/contracts beside this repo, or set PAYMENT_REFS_FIXTURE.',
+  );
+}
 
-describe('paymentRef', () => {
+const describeVectors = fixtureAvailable ? describe : describe.skip;
+
+describeVectors('paymentRef', () => {
   it.each(fixture.vectors.map((v) => [`${v.chain} — ${v.note}`, v] as const))(
     'matches the committed contract vector: %s',
     (_label, v) => {
@@ -85,7 +103,7 @@ describe('paymentRef', () => {
   });
 });
 
-describe('chain registry', () => {
+describeVectors('chain registry', () => {
   it('matches the committed registry', () => {
     expect(
       CHAINS.map((c) => ({

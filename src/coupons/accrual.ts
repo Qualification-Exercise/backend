@@ -52,7 +52,6 @@ export function accrualAmount(input: IAccrualInput): string {
     throw new AccrualInputError(`cashbackBps must be a non-negative integer`);
   }
 
-
   const amountWad = toWad(paymentAmount, decimalsFor(asset));
   const priceWad = toWad(assetUsdPrice, 18);
   const rateWad = toWad(utlUsdRate, 18);
