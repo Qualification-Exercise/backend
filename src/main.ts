@@ -1,6 +1,8 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@/app.module';
+import { validateEnv } from '@/config/env';
+import { setupSwagger } from '@/common/utils/swagger.util';
 import { pino } from 'pino';
 
 const _logger = pino({
@@ -15,6 +17,17 @@ const _logger = pino({
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const env = validateEnv(process.env);
+
+  const corsOrigins =
+    env.CORS_ORIGINS === '*'
+      ? '*'
+      : env.CORS_ORIGINS.split(',').map((origin) => origin.trim());
+
+  app.enableCors({
+    origin: corsOrigins,
+    credentials: corsOrigins !== '*',
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -24,10 +37,13 @@ async function bootstrap() {
     }),
   );
 
-  const port = process.env.PORT || 3000;
+  const port = env.PORT;
+  setupSwagger(app, port);
+
   await app.listen(port);
 
   _logger.info(`Application is running on: http://localhost:${port}`);
+  _logger.info(`Swagger docs available at: http://localhost:${port}/api`);
 }
 
 bootstrap().catch((err) => {

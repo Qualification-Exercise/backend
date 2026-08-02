@@ -209,11 +209,13 @@ src/
 | `REDIS_PASSWORD` | `` | Redis password (empty if none) |
 | **Auth (OIDC/JWT)** |
 | `JWT_SECRET` | (min 32 chars) | Secret for signing JWTs |
-| `JWT_EXPIRATION` | `3600` | Token TTL in seconds |
+| `JWT_EXPIRATION` | `3600` | Access token TTL in seconds |
+| `REFRESH_TOKEN_EXPIRATION` | `604800` | Refresh token TTL in seconds (7 days) |
 | `AUTH_PROVIDER` | `auth0` | Auth provider (`auth0`, `keycloak`, `cognito`) |
 | `AUTH_ISSUER` | `https://your-auth-provider.auth0.com/` | OIDC issuer URL |
 | `AUTH_AUDIENCE` | `https://your-backend-api` | JWT audience claim |
 | `JWKS_URI` | `https://your-auth-provider.auth0.com/.well-known/jwks.json` | JWKS endpoint for public keys |
+| `GOOGLE_CLIENT_ID` | `...apps.googleusercontent.com` | Google OAuth client ID for `POST /auth/google` |
 | **Encryption** |
 | `SEED_BACKUP_ENCRYPTION_KEY` | (min 32 chars) | Key for encrypting seed phrases |
 | **Indexer** |
@@ -322,6 +324,67 @@ Configuration is driven entirely by environment variables:
    - Expiration
 4. Request continues with `req.user` populated
 
+### Google Sign-In
+
+The `POST /auth/google` endpoint accepts a Google ID token from the client and returns access + refresh JWT tokens:
+
+```bash
+# Request
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"googleToken":"eyJhbGciOiJSUzI1NiIsImtpZCI6IjEyMzQ1..."}' \
+  localhost:3000/auth/google
+
+# Response (201)
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "firstName": "John",
+    "lastName": "Doe"
+  }
+}
+
+# Error responses:
+# 400 - Missing or empty googleToken
+# 401 - Invalid/expired Google token, or unverified email
+# 502 - Could not reach Google to verify token
+```
+
+**Key behaviors:**
+- First-time login with a new email creates a new user automatically.
+- Subsequent logins with the same Google account return the same user.
+- If the email already exists under a different auth provider, the Google login "links" the accounts by updating the user's `externalAuthId`.
+- Only verified Google emails are accepted (Google's `email_verified` claim must be true).
+
+### Refresh Token
+
+The `POST /auth/refresh` endpoint redeems a refresh token for a new access + refresh pair:
+
+```bash
+# Request
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"refreshToken":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}' \
+  localhost:3000/auth/refresh
+
+# Response (200)
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "firstName": "John",
+    "lastName": "Doe"
+  }
+}
+
+# Error responses:
+# 400 - Missing or empty refreshToken
+# 401 - Invalid/expired refresh token, or wrong token type
+```
+
 ### Protected Endpoints
 
 ```typescript
@@ -330,6 +393,188 @@ Configuration is driven entirely by environment variables:
 async getProfile(@Request() req: any) {
   return req.user; // Contains sub, email, other claims
 }
+```
+
+## Coupons API (BE-10)
+
+| Method | Path                    | Purpose                                  |
+| ------ | ----------------------- | ---------------------------------------- |
+| `GET`  | `/coupons`              | The coupon screen; `?status=&limit=&cursor=` |
+| `GET`  | `/coupons/:id`          | One coupon                               |
+| `GET`  | `/coupons/by-code/:code`| Resolve a manually typed code            |
+
+All three are JWT-guarded and scoped to the caller. Each item carries the state,
+the UTL amount, the source payment (asset, network, smallest-unit amount, USD
+value, live confirmations) and whether it is claimable.
+
+- **`PENDING` items are projected from unconfirmed payments.** Accrual only ever
+  creates `ISSUED` coupons, so a payment below the confirmation depth has no coupon
+  row yet — the list unions those in, with `confirmations` / `requiredConfirmations`
+  read live from the chain head, which is what MOB-15 renders as "4 / 12". They get
+  a synthetic `pending:<paymentRef>` id that `GET /coupons/:id` also resolves, so
+  the ids the API hands out are never dead links.
+- **Keyset pagination** over `(createdAt, id)` descending. A coupon issued
+  mid-scroll cannot shift a row from one page onto another, which offset paging
+  would allow. `nextCursor` is opaque; one we did not issue is a `400`.
+- **404, never 403.** Another user's coupon — by id or by code — is `404
+  COUPON_NOT_FOUND`, byte-identical to the response for a code that does not exist.
+  A 403 would confirm the code exists, which is exactly what a guesser wants. The
+  ownership check on the code path is `timingSafeEqual`, so the two outcomes are
+  not distinguishable by timing either.
+- **`usdValue` carries 6 decimals**, not 2. The demo's payments are worth fractions
+  of a cent, and `"0.00"` would tell a user their cashback came from nothing.
+
+## Accrual (BE-09)
+
+Turns one confirmed, priced payment into exactly one coupon:
+
+```
+amount = floor( payment_amount × asset_usd_price × cashback / utl_usd_rate )
+```
+
+normalised to 18 decimals and stored in UTL wei. Every step is bigint arithmetic —
+a float here is a way for two issuers to derive two different digests from the same
+inputs, and then no signature reaches the threshold.
+
+| Variable                    | Meaning                                        |
+| --------------------------- | ---------------------------------------------- |
+| `UTL_USD_RATE`              | Administrative UTL price in USD (demo: `1`)     |
+| `CASHBACK_BPS`              | Cashback rate in basis points (`500` = 5 %)     |
+| `ACCRUAL_POLL_INTERVAL_MS`  | Tick interval; `0` disables the loop            |
+| `ACCRUAL_BATCH_SIZE`        | Payments accrued per tick                       |
+
+Both rates are configuration, never literals, and both are served by `GET /config`
+so a client can explain the number it shows:
+
+```json
+{ "utlUsdRate": "1", "cashbackBps": 500, "cashbackRate": 0.05, "confirmationDepths": { … } }
+```
+
+- **Floor everywhere.** The payment is truncated to the asset's own precision first
+  (6 for USD₮, 8 for BTC), and the single division at the end is the only rounding
+  step. Nothing rounds up into a mint.
+- **Supported assets** are USD₮ (6 decimals), BTC (8), XAUT (6) and ETH (18). ETH
+  needs no re-scaling — it is already the contract's unit. Note that ETH prices and
+  accrues, but the Indexer API serves no `eth` token on any chain
+  (`params/token must be equal to one of the allowed values`), so no ETH payment can
+  be ingested today. A merchant registered with `token='eth'` is skipped with a
+  warning and the other merchants still poll; a batch request fails as a whole, so
+  sending it would stall everyone's cashback.
+- **Golden vectors** live in `test/fixtures/accrual/golden-amounts.json` and are
+  reused verbatim by BE-13. Both sides must reproduce every amount byte for byte; a
+  mismatch is a real bug, never a reason to edit the file.
+- **Coupon codes** come from a CSPRNG — 16 Crockford-style base32 characters in
+  four groups, no `I`/`L`/`O`/`U`, unrelated to the coupon id or the payment.
+- **Orphaned payments void their coupons** before any claim can reach them. A
+  coupon that was *already* claimed is not rewritten — it raises
+  `security_event=coupon.orphaned_after_claim`, because the money is gone and
+  pretending otherwise hides the incident.
+- **Illegal state transitions are rejected by the database.** The migration
+  installs a trigger over the documented machine:
+
+  ```
+  PENDING → ISSUED → PENDING_ATTESTATION → ATTESTED → CLAIM_SUBMITTED → CLAIMED
+  issuer rejection / deadline / reorg / tx failure → back to ISSUED
+  anything still open → EXPIRED / ORPHANED;  CLAIMED → ORPHANED only
+  ```
+
+  `UPDATE coupons SET status='CLAIMED'` from `PENDING_ATTESTATION` fails with
+  `illegal coupon transition PENDING_ATTESTATION -> CLAIMED`.
+
+## Pricing (BE-08)
+
+One canonical asset→USD price per confirmed payment, frozen into `price_snapshots`
+and keyed by `paymentRef`. It exists so all K issuers compute a **byte-identical**
+`amount` — a price each issuer fetched for itself would differ by a few wei and
+produce K signatures over K different digests, none of which reach the threshold.
+
+Prices come from `@tetherto/wdk-pricing-bitfinex-http`, the same client the wallet
+SDK uses, rather than a hand-rolled Bitfinex call.
+
+| Variable                    | Meaning                              |
+| --------------------------- | ------------------------------------ |
+| `PRICING_POLL_INTERVAL_MS`  | Tick interval; `0` disables the loop  |
+| `PRICING_BATCH_SIZE`        | Payments priced per tick              |
+
+```bash
+npm run poll:once   # ingest, then price the newly confirmed payments
+```
+
+- **USD₮ takes the same path as BTC.** It is priced at whatever Bitfinex quotes
+  (0.99991 on the live run above), never a hardcoded `1`. One code path, not two.
+- **The price is taken at the payment's timestamp**, not at accrual time, so
+  polling latency cannot change the number. The snapshot keeps the provider's own
+  timestamp so issuers can check it falls in the payment's window.
+- **Append-only, enforced in the database.** The migration installs a trigger that
+  rejects `UPDATE` and `DELETE` on `price_snapshots`. A snapshot that can be edited
+  is a way to move all K issuers at once, which is exactly what the table exists to
+  prevent. BE-02 role grants are the outer layer; the trigger is the floor. (Note:
+  clearing the table in dev needs `TRUNCATE`, which bypasses row triggers.)
+- **A provider outage is a handled state.** No price means no snapshot: the coupon
+  waits and the payment is retried next tick. It never accrues at a guessed price.
+
+> Bitfinex uses its own currency codes — Tether is `UST`, not `USDT` — so the
+> asset mapping lives in one place (`src/pricing/price-source.ts`) and an unmapped
+> asset is an explicit error rather than a wrong price. The WDK provider package
+> also declares history points as `{ timestamp, price }` while the Bitfinex client
+> actually returns `{ ts, price }`; we read both.
+
+## Payment Ingestion (BE-07)
+
+A background loop polls **merchant** addresses — never user addresses — through the
+hosted WDK Indexer API and writes `payments`. Merchants are few and users are many,
+so the polling cost is bounded by the merchant registry rather than by signups.
+
+```bash
+# add a merchant; the poller picks it up on the next tick, no restart
+psql -c "INSERT INTO merchants (name,\"srcChainId\",address,token,priority,active)
+         VALUES ('Demo','11155111','0xMerchant…','usdt',10,true);"
+
+npm run poll:once          # one pass, then exit (PAYMENT_POLL_INTERVAL_MS=0 locally)
+```
+
+| Variable                     | Meaning                                              |
+| ---------------------------- | ---------------------------------------------------- |
+| `PAYMENT_POLL_INTERVAL_MS`   | Tick interval; `0` disables the loop                 |
+| `PAYMENT_POLL_PAGE_SIZE`     | How far past the cursor each poll reaches            |
+| `PAYMENT_POLL_MAX_MERCHANTS` | Merchants per tick, lowest `priority` first          |
+| `CONFIRMATION_DEPTHS`        | Blocks of depth per `srcChainId` before money counts |
+| `RPC_URLS`                   | Chain head source per `srcChainId`                   |
+
+**Idempotency.** `UNIQUE (srcChainId, txHash, outputIndex)` on `payments` is what
+makes an overlapping poll window harmless — a re-ingested transfer is an insert that
+loses, not a second payment. `paymentRef` comes from `@/chains` (BE-03), so the
+indexer's dedup key and the bytes the contract nullifies are literally the same.
+
+**Confirmations.** The indexer reports no confirmation count and no block hash, so
+depth is measured against our own chain head via `RPC_URLS`. A chain with no RPC
+configured leaves its payments `pending` forever rather than confirming them on
+faith — cashback paid on a reorged payment is money minted from nothing. Only EVM
+head lookups are implemented; Tron, Bitcoin and Spark need their own head source.
+
+**Reorgs.** A payment the indexer stops reporting, or reports on a different block,
+is marked `orphaned` and logged as `security_event=payment.orphaned`.
+
+**Two API constraints worth knowing** (probed against the live service, documented
+nowhere): `limit` is the only query parameter that has any effect — `fromBlock`,
+`offset` and `sort` are accepted and silently ignored — and results come back
+ascending from the *oldest* record retained. So the cursor stores both a `seenCount`
+(standing in for the offset the API will not accept) and a
+`(blockNumber, transactionIndex, transferIndex)` watermark that stays correct even
+when the indexer drops old records.
+
+> **Open item before Bitcoin cashback ships.** The contracts spec derives
+> `paymentRef` from the `vout`; the indexer exposes no vout, only a per-transaction
+> `transferIndex`. It does separate two outputs to one merchant in one transaction
+> (the recorded fixture proves it), so refs stay distinct — but an issuer deriving
+> the ref from a real vout on its own node would compute different bytes. Confirm
+> with the indexer and contract owners.
+
+Use the access token in the `Authorization: Bearer <token>` header:
+
+```bash
+curl -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:3000/users/me
+# Response: { "id": "...", "email": "...", "firstName": "...", "lastName": "..." }
 ```
 
 ## Wallet Mapping (BE-05)
@@ -379,10 +624,10 @@ Properties worth knowing:
 
 ### TODO: Authentication Implementation
 
+- [x] Implement user creation on first login (`POST /auth/google` with auto-register)
+- [x] Add refresh token support (`POST /auth/refresh`)
 - [ ] Implement OIDC authorization code exchange (`POST /auth/token`)
 - [ ] Add JWKS caching with TTL
-- [ ] Implement user creation on first login (`POST /auth/session`; `validate()` only looks up)
-- [ ] Add refresh token support (if provider supports)
 - [ ] Add logout endpoint (invalidate tokens in Redis)
 - [ ] Add rate limiting on auth endpoints
 
@@ -439,9 +684,10 @@ docker compose -f infra/docker-compose.yml logs -f postgres  # Tail logs
 ## Roadmap / TODOs
 
 ### Core Auth & Users
-- [ ] Implement `auth/` module: OIDC code exchange, token validation
-- [ ] Implement `users/` module: user creation on first login, profile endpoints
-- [ ] Add refresh token / logout flow
+- [x] Implement `auth/` module: Google sign-in, token validation, refresh flow
+- [x] Implement `users/` module: user creation on first login, profile endpoints (`GET /users/me`)
+- [x] Add refresh token support (`POST /auth/refresh`)
+- [ ] Add logout endpoint (invalidate tokens in Redis)
 
 ### Wallet Management
 - [ ] Implement `wallets/` module: wallet creation, seed encryption
