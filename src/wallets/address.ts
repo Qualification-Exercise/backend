@@ -13,7 +13,27 @@ import {
   type Hex,
 } from 'viem';
 
+import { EChainKind } from '@/chains/chain-kind.enum';
+
 export type ChainFamily = 'EVM' | 'TRON' | 'BTC' | 'SPARK';
+
+export const CHAIN_KIND_OF_FAMILY: Record<ChainFamily, EChainKind> = {
+  EVM: EChainKind.EVM,
+  TRON: EChainKind.TRON,
+  BTC: EChainKind.BITCOIN,
+  SPARK: EChainKind.SPARK,
+};
+
+export const FAMILY_OF_CHAIN_KIND: Record<EChainKind, ChainFamily> = {
+  [EChainKind.EVM]: 'EVM',
+  [EChainKind.TRON]: 'TRON',
+  [EChainKind.BITCOIN]: 'BTC',
+  [EChainKind.SPARK]: 'SPARK',
+};
+
+export function proofSupported(family: ChainFamily): boolean {
+  return family === 'EVM' || family === 'TRON';
+}
 
 export interface INormalizedAddress {
   family: ChainFamily;

@@ -145,7 +145,10 @@ async function build(options: {
 }) {
   const payments = options.payments ?? paymentRepo();
   const cursors = options.cursors ?? cursorRepo();
-  const walletRows = options.wallets ?? [];
+  const walletRows = (options.wallets ?? []).map((w) => ({
+    verified: true,
+    ...w,
+  }));
   const batch = jest.fn((queries: ITransferQuery[]): Promise<ITransfer[][]> =>
     Promise.resolve(queries.map((_, i) => options.transfers[i] ?? [])),
   );
@@ -176,8 +179,15 @@ async function build(options: {
       {
         provide: getRepositoryToken(Wallet),
         useValue: {
-          findOne: jest.fn(async ({ where }: { where: { address: string } }) =>
-            walletRows.find((w) => w.address === where.address),
+          findOne: jest.fn(
+            async ({ where }: { where: Partial<Wallet> }) =>
+              walletRows.find(
+                (w) =>
+                  w.address === where.address &&
+                  w.verified === where.verified &&
+                  (w.srcChainId === undefined ||
+                    Number(w.srcChainId) === Number(where.srcChainId)),
+              ) ?? null,
           ),
         },
       },
@@ -282,6 +292,19 @@ describe('PaymentPollerService', () => {
 
     expect(payments.rows.every((p) => p.status === 'ignored')).toBe(true);
     expect(payments.rows.every((p) => p.userId === null)).toBe(true);
+  });
+
+  it('does not attribute a payment to an unverified address', async () => {
+    const { service, payments } = await build({
+      merchants: [merchant()],
+      transfers: [sepoliaTransfers],
+      wallets: [{ userId: 'user-1', address: KNOWN_PAYER, verified: false }],
+    });
+
+    await service.tick();
+
+    expect(payments.rows.every((p) => p.userId === null)).toBe(true);
+    expect(payments.rows.every((p) => p.status === 'ignored')).toBe(true);
   });
 
   it('orphans a payment the indexer stops reporting', async () => {

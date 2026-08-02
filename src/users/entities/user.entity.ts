@@ -17,8 +17,8 @@ export class User {
   @Column({ unique: true })
   externalAuthId: string;
 
-  @Column({ unique: true })
-  email: string;
+  @Column({ type: 'varchar', nullable: true })
+  email: string | null;
 
   @Column({ type: 'varchar', nullable: true })
   firstName: string | null;
