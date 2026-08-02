@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Coupon } from './entities/coupon.entity';
-import { UtilityTokenClaim } from './entities/utility-token-claim.entity';
 import { Payment } from '@/payments/entities/payment.entity';
 import { PriceSnapshot } from '@/pricing/entities/price-snapshot.entity';
 import { IndexerCursor } from '@/payments/entities/indexer-cursor.entity';
@@ -13,13 +12,7 @@ import { CouponsController } from './controllers/coupons.controller';
 @Module({
   imports: [
     PaymentsModule,
-    TypeOrmModule.forFeature([
-      Coupon,
-      UtilityTokenClaim,
-      Payment,
-      PriceSnapshot,
-      IndexerCursor,
-    ]),
+    TypeOrmModule.forFeature([Coupon, Payment, PriceSnapshot, IndexerCursor]),
   ],
   providers: [CouponsService, AccrualService],
   controllers: [CouponsController],

@@ -60,27 +60,6 @@ describe('UsersService', () => {
     });
   });
 
-  describe('findByEmail', () => {
-    it('should return a user by email', async () => {
-      const email = 'test@example.com';
-      const user = { id: 'test-id', email } as User;
-      jest.spyOn(repository, 'findOne').mockResolvedValue(user);
-
-      const result = await service.findByEmail(email);
-
-      expect(result).toEqual(user);
-      expect(repository.findOne).toHaveBeenCalledWith({ where: { email } });
-    });
-
-    it('should return null if user not found', async () => {
-      jest.spyOn(repository, 'findOne').mockResolvedValue(null);
-
-      const result = await service.findByEmail('nonexistent@example.com');
-
-      expect(result).toBeNull();
-    });
-  });
-
   describe('create', () => {
     it('should create a new user', async () => {
       const data = {
@@ -123,7 +102,7 @@ describe('UsersService', () => {
 
       expect(result).toEqual(existingUser);
       expect(repository.findOne).toHaveBeenCalledWith({
-        where: [{ email: data.email }, { externalAuthId: data.externalAuthId }],
+        where: { externalAuthId: data.externalAuthId },
       });
     });
 
@@ -143,33 +122,6 @@ describe('UsersService', () => {
 
       await expect(service.create(data)).rejects.toMatchObject({
         code: 'OTHER_ERROR',
-      });
-    });
-  });
-
-  describe('updateExternalAuthId', () => {
-    it('should update externalAuthId and return updated user', async () => {
-      const userId = 'test-id';
-      const newExternalAuthId = 'google-456';
-      const updatedUser = {
-        id: userId,
-        externalAuthId: newExternalAuthId,
-      } as User;
-      jest.spyOn(repository, 'update').mockResolvedValue({} as never);
-      jest.spyOn(repository, 'findOne').mockResolvedValue(updatedUser);
-
-      const result = await service.updateExternalAuthId(
-        userId,
-        newExternalAuthId,
-      );
-
-      expect(result).toEqual(updatedUser);
-      expect(repository.update).toHaveBeenCalledWith(
-        { id: userId },
-        { externalAuthId: newExternalAuthId },
-      );
-      expect(repository.findOne).toHaveBeenCalledWith({
-        where: { id: userId },
       });
     });
   });

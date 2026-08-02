@@ -212,7 +212,7 @@ export class PaymentPollerService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
 
     const payer = await this.wallets.findOne({
-      where: { address: canonical(transfer.from) },
+      where: { srcChainId, address: canonical(transfer.from), verified: true },
     });
 
     try {

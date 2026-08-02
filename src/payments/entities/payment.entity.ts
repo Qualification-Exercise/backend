@@ -34,7 +34,7 @@ export class Payment {
   @Column()
   token: string;
 
-  @Column()
+  @Column({ type: 'numeric', precision: 78, scale: 0 })
   amount: string;
 
   @Column()

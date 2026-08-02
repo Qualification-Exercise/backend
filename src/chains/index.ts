@@ -1,8 +1,17 @@
 import { encodeAbiParameters, keccak256, type Hex } from 'viem';
 
+import { EChainKind } from '@/chains/chain-kind.enum';
+
+export {
+  EChainKind,
+  CHAIN_KINDS,
+  type ChainKind,
+} from '@/chains/chain-kind.enum';
+
 export interface IChain {
   name: string;
   srcChainId: number;
+  kind: EChainKind;
   evm: boolean;
   indexer: { blockchain: string; tokens: string[] };
 }
@@ -11,36 +20,42 @@ export const CHAINS: readonly IChain[] = [
   {
     name: 'Ethereum Sepolia',
     srcChainId: 11155111,
+    kind: EChainKind.EVM,
     evm: true,
     indexer: { blockchain: 'sepolia', tokens: ['usdt'] },
   },
   {
     name: 'Arbitrum Sepolia',
     srcChainId: 421614,
+    kind: EChainKind.EVM,
     evm: true,
     indexer: { blockchain: 'arbitrum', tokens: ['usdt', 'xaut'] },
   },
   {
     name: 'Polygon Amoy',
     srcChainId: 80002,
+    kind: EChainKind.EVM,
     evm: true,
     indexer: { blockchain: 'polygon', tokens: ['usdt', 'xaut'] },
   },
   {
     name: 'Tron',
     srcChainId: 4294967297,
+    kind: EChainKind.TRON,
     evm: false,
     indexer: { blockchain: 'tron', tokens: ['usdt'] },
   },
   {
     name: 'Bitcoin',
     srcChainId: 4294967298,
+    kind: EChainKind.BITCOIN,
     evm: false,
     indexer: { blockchain: 'bitcoin', tokens: ['btc'] },
   },
   {
     name: 'Spark',
     srcChainId: 4294967299,
+    kind: EChainKind.SPARK,
     evm: false,
     indexer: { blockchain: 'spark', tokens: ['btc'] },
   },
@@ -53,6 +68,10 @@ export function chainBySrcChainId(srcChainId: number): IChain {
   const chain = BY_SRC_CHAIN_ID.get(srcChainId);
   if (!chain) throw new Error(`Unknown srcChainId: ${srcChainId}`);
   return chain;
+}
+
+export function chainKindOf(srcChainId: number): EChainKind {
+  return chainBySrcChainId(srcChainId).kind;
 }
 
 export function chainByIndexerName(blockchain: string): IChain {

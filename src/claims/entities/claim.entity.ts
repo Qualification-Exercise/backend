@@ -26,7 +26,7 @@ export class ClaimEntity {
   @Column({ name: 'recipient', type: 'varchar' })
   recipient: string;
 
-  @Column({ name: 'amount', type: 'decimal', precision: 40, scale: 0 })
+  @Column({ name: 'amount', type: 'numeric', precision: 78, scale: 0 })
   amount: string; // Wei-level precision (no decimal places); frozen at claim creation for relayer
 
   @Column({ name: 'deadline', type: 'bigint' })
