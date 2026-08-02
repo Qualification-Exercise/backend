@@ -18,6 +18,8 @@ describe('UsersService', () => {
             findOne: jest.fn(),
             find: jest.fn(),
             save: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
           },
         },
       ],
@@ -35,9 +37,140 @@ describe('UsersService', () => {
     expect(repository).toBeDefined();
   });
 
-  // TODO: add real unit tests
-  // Examples:
-  // - test findById
-  // - test createOrUpdate
-  // - test error handling
+  describe('findById', () => {
+    it('should return a user by id', async () => {
+      const userId = 'test-id';
+      const user = { id: userId, email: 'test@example.com' } as User;
+      jest.spyOn(repository, 'findOne').mockResolvedValue(user);
+
+      const result = await service.findById(userId);
+
+      expect(result).toEqual(user);
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { id: userId },
+      });
+    });
+
+    it('should return null if user not found', async () => {
+      jest.spyOn(repository, 'findOne').mockResolvedValue(null);
+
+      const result = await service.findById('nonexistent-id');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('findByEmail', () => {
+    it('should return a user by email', async () => {
+      const email = 'test@example.com';
+      const user = { id: 'test-id', email } as User;
+      jest.spyOn(repository, 'findOne').mockResolvedValue(user);
+
+      const result = await service.findByEmail(email);
+
+      expect(result).toEqual(user);
+      expect(repository.findOne).toHaveBeenCalledWith({ where: { email } });
+    });
+
+    it('should return null if user not found', async () => {
+      jest.spyOn(repository, 'findOne').mockResolvedValue(null);
+
+      const result = await service.findByEmail('nonexistent@example.com');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('create', () => {
+    it('should create a new user', async () => {
+      const data = {
+        externalAuthId: 'google-123',
+        email: 'test@example.com',
+        firstName: 'John',
+        lastName: 'Doe',
+      };
+      const createdUser = { id: 'new-id', ...data } as User;
+      jest.spyOn(repository, 'create').mockReturnValue(createdUser);
+      jest.spyOn(repository, 'save').mockResolvedValue(createdUser);
+
+      const result = await service.create(data);
+
+      expect(result).toEqual(createdUser);
+      expect(repository.create).toHaveBeenCalledWith(data);
+      expect(repository.save).toHaveBeenCalledWith(createdUser);
+    });
+
+    it('should return existing user on unique violation (23505)', async () => {
+      const data = {
+        externalAuthId: 'google-123',
+        email: 'test@example.com',
+        firstName: 'John',
+        lastName: 'Doe',
+      };
+      const existingUser = {
+        id: 'existing-id',
+        email: data.email,
+        externalAuthId: data.externalAuthId,
+      } as User;
+      const mockEntity = { ...data } as User;
+      jest.spyOn(repository, 'create').mockReturnValue(mockEntity);
+      jest
+        .spyOn(repository, 'save')
+        .mockRejectedValueOnce({ code: '23505' } as never);
+      jest.spyOn(repository, 'findOne').mockResolvedValueOnce(existingUser);
+
+      const result = await service.create(data);
+
+      expect(result).toEqual(existingUser);
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: [{ email: data.email }, { externalAuthId: data.externalAuthId }],
+      });
+    });
+
+    it('should throw error if not a unique violation', async () => {
+      const data = {
+        externalAuthId: 'google-123',
+        email: 'test@example.com',
+        firstName: 'John',
+        lastName: 'Doe',
+      };
+      const mockEntity = { ...data } as User;
+      jest.spyOn(repository, 'create').mockReturnValue(mockEntity);
+      jest
+        .spyOn(repository, 'save')
+        .mockRejectedValueOnce({ code: 'OTHER_ERROR' } as never);
+      jest.spyOn(repository, 'findOne').mockResolvedValueOnce(null);
+
+      await expect(service.create(data)).rejects.toMatchObject({
+        code: 'OTHER_ERROR',
+      });
+    });
+  });
+
+  describe('updateExternalAuthId', () => {
+    it('should update externalAuthId and return updated user', async () => {
+      const userId = 'test-id';
+      const newExternalAuthId = 'google-456';
+      const updatedUser = {
+        id: userId,
+        externalAuthId: newExternalAuthId,
+      } as User;
+      jest.spyOn(repository, 'update').mockResolvedValue({} as never);
+      jest.spyOn(repository, 'findOne').mockResolvedValue(updatedUser);
+
+      const result = await service.updateExternalAuthId(
+        userId,
+        newExternalAuthId,
+      );
+
+      expect(result).toEqual(updatedUser);
+      expect(repository.update).toHaveBeenCalledWith(
+        { id: userId },
+        { externalAuthId: newExternalAuthId },
+      );
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { id: userId },
+      });
+    });
+  });
 });

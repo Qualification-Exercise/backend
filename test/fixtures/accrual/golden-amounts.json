@@ -1,0 +1,116 @@
+{
+  "_comment": [
+    "Golden accrual vectors. amount = floor(payment_amount \u00d7 asset_usd_price \u00d7 cashback / utl_usd_rate),",
+    "normalised to 18 decimals, expressed in UTL wei as a decimal integer string.",
+    "",
+    "BE-09 (accrual) and BE-13 (issuer attestation) must both reproduce every row here,",
+    "byte for byte. An issuer that computes a different amount signs a different digest,",
+    "and no signature reaches the threshold \u2014 so a mismatch is a real bug, never a reason",
+    "to edit this file.",
+    "",
+    "Asset precision is the asset's own: 6 for USD\u20ae and XAUT, 8 for BTC. The payment amount",
+    "is truncated to that precision before anything else happens, and the single division at",
+    "the end is the only rounding step. floor everywhere \u2014 never round up into a mint."
+  ],
+  "vectors": [
+    {
+      "note": "the live sepolia demo payment: 0.01 USD\u20ae at the frozen Bitfinex price",
+      "paymentAmount": "0.01",
+      "asset": "USDT",
+      "assetUsdPrice": "0.99991",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "499955000000000"
+    },
+    {
+      "note": "USD\u20ae at exactly 1.0 \u2014 5 % of 0.01 is 0.0005 UTL",
+      "paymentAmount": "0.01",
+      "asset": "USDT",
+      "assetUsdPrice": "1",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "500000000000000"
+    },
+    {
+      "note": "BTC keeps 8 decimals: 0.00012345 BTC at $62204",
+      "paymentAmount": "0.00012345",
+      "asset": "BTC",
+      "assetUsdPrice": "62204",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "383954190000000000"
+    },
+    {
+      "note": "below one wei of entitlement: floor takes it to zero rather than up to one",
+      "paymentAmount": "0.000001",
+      "asset": "USDT",
+      "assetUsdPrice": "0.00000000000000001",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "0"
+    },
+    {
+      "note": "dust: a real but tiny entitlement survives as a single wei",
+      "paymentAmount": "0.000001",
+      "asset": "USDT",
+      "assetUsdPrice": "0.00000000002",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "1"
+    },
+    {
+      "note": "sub-precision payment truncates to zero at USD\u20ae's 6 decimals",
+      "paymentAmount": "0.0000009",
+      "asset": "USDT",
+      "assetUsdPrice": "1",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "0"
+    },
+    {
+      "note": "BTC sub-satoshi input truncates before it can be paid for",
+      "paymentAmount": "0.000000009",
+      "asset": "BTC",
+      "assetUsdPrice": "62204",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "0"
+    },
+    {
+      "note": "a UTL rate other than $1 divides, and still floors",
+      "paymentAmount": "1",
+      "asset": "USDT",
+      "assetUsdPrice": "1",
+      "utlUsdRate": "3",
+      "cashbackBps": 500,
+      "amount": "16666666666666666"
+    },
+    {
+      "note": "whole-number payment, no fractional part at all",
+      "paymentAmount": "250",
+      "asset": "USDT",
+      "assetUsdPrice": "0.9998",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "12497500000000000000"
+    },
+    {
+      "note": "10 ETH at $1920.55 \u2014 an 18-decimal asset needs no re-scaling",
+      "paymentAmount": "10",
+      "asset": "ETH",
+      "assetUsdPrice": "1920.55",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "960275000000000000000"
+    },
+    {
+      "note": "1 wei of ETH is far below one wei of UTL entitlement",
+      "paymentAmount": "0.000000000000000001",
+      "asset": "ETH",
+      "assetUsdPrice": "1920.55",
+      "utlUsdRate": "1",
+      "cashbackBps": 500,
+      "amount": "96"
+    }
+  ]
+}
