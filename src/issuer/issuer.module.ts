@@ -15,6 +15,8 @@ import { CoinGeckoPriceProvider } from '@/issuer/price-providers/coingecko-price
 import { AttestationService } from '@/issuer/services/attestation.service';
 import { IssuerRunnerService } from '@/issuer/services/issuer-runner.service';
 import { PaymentVerifierService } from '@/common/chain/payment-verifier.service';
+import { BitcoinPaymentVerifier } from '@/common/chain/verifiers/bitcoin.verifier';
+import { TronPaymentVerifier } from '@/common/chain/verifiers/tron.verifier';
 import { ConfirmationPolicy } from '@/payments/confirmation-policy';
 import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
@@ -52,6 +54,8 @@ import { Wallet } from '@/wallets/entities/wallet.entity';
     PriceSource,
     CoinGeckoPriceProvider,
     PaymentVerifierService,
+    TronPaymentVerifier,
+    BitcoinPaymentVerifier,
     AttestationService,
     IssuerRunnerService,
   ],

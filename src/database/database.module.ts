@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Env } from '@/config/env';
+import { ENTITIES } from './entities';
 import { migrations } from './migrations';
 
 @Module({
@@ -15,7 +16,7 @@ import { migrations } from './migrations';
         username: configService.get('DB_USERNAME'),
         password: configService.get('DB_PASSWORD'),
         database: configService.get('DB_NAME'),
-        autoLoadEntities: true,
+        entities: ENTITIES,
         synchronize: false,
         logging: configService.get('NODE_ENV') === 'development',
         migrations,

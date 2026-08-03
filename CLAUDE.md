@@ -14,6 +14,7 @@ This document guides Claude Code on how to work effectively with this project.
 ## Conventions & Naming
 
 ### File Naming (kebab-case)
+
 - `module-name.module.ts`
 - `feature-name.service.ts`
 - `feature-name.controller.ts`
@@ -26,6 +27,7 @@ This document guides Claude Code on how to work effectively with this project.
 - `feature-name.spec.ts` (test files)
 
 ### Class & Type Naming (PascalCase with Prefixes)
+
 - **Classes**: `PascalCase` (e.g., `UserService`, `CouponRepo`, `UsersController`)
 - **Interfaces**: `IPascalCase` (e.g., `ICreateUserParams`, `ICouponResponse`) — **MUST start with I**
   - **RULE: All interfaces MUST be in separate `*.interface.ts` files, never inline in service/controller files**
@@ -41,6 +43,7 @@ This document guides Claude Code on how to work effectively with this project.
 - **Variables/Functions**: `camelCase` (e.g., `getUserById`, `findActiveUsers`)
 
 ### Entity & Database Naming
+
 - **Entity properties**: `camelCase` (TypeScript standard) — `userId`, `createdAt`, `discountAmount`
 - **Database columns**: `snake_case` (explicitly mapped via `@Column({ name: 'snake_case' })`)
 - **Table names**: `snake_case` (plural) in `@Entity({ name: 'table_name' })` — `users`, `coupons`, `subscriptions`
@@ -49,6 +52,7 @@ This document guides Claude Code on how to work effectively with this project.
 - **Join columns**: Must match actual database column name — `@JoinColumn({ name: 'user_id' })`
 
 ### Module Structure (per feature)
+
 ```
 feature-name/
 ├── feature-name.module.ts               # NestJS module
@@ -85,26 +89,27 @@ feature-name/
 
 ## Key Files to Know
 
-| File | Purpose |
-|------|---------|
-| `src/main.ts` | Application entry, Pino logger setup |
-| `src/app.module.ts` | Root module, imports all feature modules + Config |
-| `src/config/env.ts` | Zod schema, environment validation (fail-fast on startup) |
-| `src/database/data-source.ts` | TypeORM DataSource for CLI (`typeorm migration:generate`, etc.) |
-| `src/database/database.module.ts` | NestJS TypeORM module configuration |
-| `src/database/seed.ts` | Seed script (stub; customize for reference data) |
-| `.env.example` | Environment variable template (keep in sync with `.env` changes) |
-| `infra/docker-compose.yml` | Local dev infrastructure (Postgres, Redis, Adminer) |
-| `.github/workflows/ci.yml` | GitHub Actions: lint, build, test on PR |
-| `jest.config.js` | Jest testing: 20% threshold for scaffold phase |
-| `README.md` | Comprehensive user guide (keep updated) |
-| `docs/architecture.md` | Detailed architecture, data flows, deployment notes |
+| File                              | Purpose                                                          |
+| --------------------------------- | ---------------------------------------------------------------- |
+| `src/main.ts`                     | Application entry, Pino logger setup                             |
+| `src/app.module.ts`               | Root module, imports all feature modules + Config                |
+| `src/config/env.ts`               | Zod schema, environment validation (fail-fast on startup)        |
+| `src/database/data-source.ts`     | TypeORM DataSource for CLI (`typeorm migration:generate`, etc.)  |
+| `src/database/database.module.ts` | NestJS TypeORM module configuration                              |
+| `src/database/seed.ts`            | Seed script (stub; customize for reference data)                 |
+| `.env.example`                    | Environment variable template (keep in sync with `.env` changes) |
+| `infra/docker-compose.yml`        | Local dev infrastructure (Postgres, Redis, Adminer)              |
+| `.github/workflows/ci.yml`        | GitHub Actions: lint, build, test on PR                          |
+| `jest.config.js`                  | Jest testing: 20% threshold for scaffold phase                   |
+| `README.md`                       | Comprehensive user guide (keep updated)                          |
+| `docs/architecture.md`            | Detailed architecture, data flows, deployment notes              |
 
 ## Working with Modules
 
 Each module is **self-contained**: entity, service (business logic), controller (HTTP layer), and configuration live in one folder.
 
 **When adding a feature**:
+
 1. Create entity in `entities/` with indexes and timestamps
 2. Create repository in `repos/` (extend `TypeOrmBaseRepo`)
 3. Create service in `services/` (inject repository, compose business logic)
@@ -115,16 +120,18 @@ Each module is **self-contained**: entity, service (business logic), controller 
 8. Add the module to `app.module.ts` imports
 
 **Module providers order**:
+
 ```typescript
 providers: [
-  SubscriptionRepo,          // Repos first
-  SubscriptionService,       // Services
+  SubscriptionRepo, // Repos first
+  SubscriptionService, // Services
   SubscriptionServiceMapper, // Mappers
   // Factory providers...
-]
+];
 ```
 
 **Do NOT**:
+
 - Put business logic in controllers
 - Hardcode configuration values (use env vars via `ConfigService`)
 - Use `console.log` (use structured logging via `Logger`)
@@ -134,17 +141,20 @@ providers: [
 ## Testing
 
 **Unit Tests** (`*.spec.ts` in `src/`):
+
 - Mock all dependencies (repositories, external services)
 - Test service methods in isolation
 - Example: `src/users/services/users.service.spec.ts`
 
 **Integration Tests** (`test/*.integration.spec.ts`):
+
 - Use real Postgres/Redis (via Docker)
 - Test end-to-end flows
 - Requires `npm run docker:up` before running
 - Example: `test/users.integration.spec.ts`
 
 **Run Tests**:
+
 ```bash
 npm run test          # All unit tests
 npm run test:cov      # With coverage report
@@ -156,21 +166,25 @@ npm test -- test/     # Integration tests only
 ## Database & Migrations
 
 **Generate Migration** (after entity changes):
+
 ```bash
 npm run migration:generate -- src/database/migrations/AddCouponTable
 ```
 
 **Run Migrations**:
+
 ```bash
 npm run migration:run
 ```
 
 **Revert Last Migration**:
+
 ```bash
 npm run migration:revert
 ```
 
 **Seed Data** (stub; customize in `src/database/seed.ts`):
+
 ```bash
 npm run seed
 ```
@@ -182,12 +196,14 @@ npm run seed
 All configuration flows through `src/config/env.ts` (Zod schema). Missing or invalid vars cause startup failure (fail-fast).
 
 **To add a new env var**:
+
 1. Add field to Zod schema in `env.ts`
 2. Add to `.env.example`
 3. Add to `.env` (locally)
 4. Document in README.md (Environment Variables section)
 
 **Example**:
+
 ```typescript
 // env.ts
 const envSchema = z.object({
@@ -196,23 +212,26 @@ const envSchema = z.object({
 });
 
 // .env / .env.example
-MY_NEW_VAR=my-value
+MY_NEW_VAR = my - value;
 ```
 
 ## Docker & Local Dev
 
 **Start Infrastructure**:
+
 ```bash
 npm run docker:up
 # Postgres (5432), Redis (6379), Adminer (8080)
 ```
 
 **Stop**:
+
 ```bash
 npm run docker:down
 ```
 
 **Check Service Health**:
+
 ```bash
 curl http://localhost:3000/health
 # Response: { "status": "ok", "database": "connected", "timestamp": "..." }
@@ -220,22 +239,23 @@ curl http://localhost:3000/health
 
 ## Common Tasks
 
-| Task | Command |
-|------|---------|
-| Start dev server | `npm run dev` |
-| Build for prod | `npm run build` |
-| Lint code | `npm run lint:fix` |
-| Format code | `npm run format` |
-| Run all tests | `npm run test:cov` |
-| Generate migration | `npm run migration:generate -- src/database/migrations/Name` |
-| Run migrations | `npm run migration:run` |
-| Seed database | `npm run seed` |
-| Start infrastructure | `npm run docker:up` |
-| Stop infrastructure | `npm run docker:down` |
+| Task                 | Command                                                      |
+| -------------------- | ------------------------------------------------------------ |
+| Start dev server     | `npm run dev`                                                |
+| Build for prod       | `npm run build`                                              |
+| Lint code            | `npm run lint:fix`                                           |
+| Format code          | `npm run format`                                             |
+| Run all tests        | `npm run test:cov`                                           |
+| Generate migration   | `npm run migration:generate -- src/database/migrations/Name` |
+| Run migrations       | `npm run migration:run`                                      |
+| Seed database        | `npm run seed`                                               |
+| Start infrastructure | `npm run docker:up`                                          |
+| Stop infrastructure  | `npm run docker:down`                                        |
 
 ## Git Workflow
 
 **Branch Naming** (with optional Jira key):
+
 ```
 feat/coupon-issuance           # New feature (generic)
 feat/PHIL-123-coupon-issuance  # New feature (with ticket key)
@@ -247,6 +267,7 @@ docs/auth-guide                # Documentation
 If a ticket key exists (e.g., PHIL-123, QUAL-456), include it in branch name: `feat/PHIL-123-description`
 
 **Commit Messages** (Conventional Commits):
+
 ```
 feat: implement coupon issuance endpoint
 feat(PHIL-123): implement coupon issuance endpoint
@@ -260,6 +281,7 @@ Include ticket key in commit scope when applicable: `feat(PHIL-123):`
 **DO NOT** add Claude as co-author in commits. Only user commits count.
 
 **Before Committing**:
+
 - Lint passes: `npm run lint:fix`
 - Tests pass: `npm run test`
 - No hardcoded secrets/credentials
@@ -268,12 +290,14 @@ Include ticket key in commit scope when applicable: `feat(PHIL-123):`
 ## Testing Strategy
 
 ### Unit Tests (isolate, mock, fast)
+
 - Test service methods
 - Mock repositories, external services
 - Location: `src/**/services/*.spec.ts`
 - Run: `npm run test`
 
 ### Integration Tests (real DB, real flows)
+
 - Test with live Postgres/Redis
 - Full request/response cycle
 - Location: `test/**/*.integration.spec.ts`
@@ -286,6 +310,7 @@ Include ticket key in commit scope when applicable: `feat(PHIL-123):`
 Services contain all business logic. Structure methods by grouping public method → its private helpers → next public → helpers.
 
 **Service pattern**:
+
 ```typescript
 @Injectable()
 export class CouponService {
@@ -306,7 +331,10 @@ export class CouponService {
 
   async expireCoupon(couponId: string): Promise<CouponEntity> {
     const coupon = await this.findById(couponId);
-    return this.couponRepo.update({ id: couponId }, { status: ECouponStatus.EXPIRED });
+    return this.couponRepo.update(
+      { id: couponId },
+      { status: ECouponStatus.EXPIRED },
+    );
   }
 
   private async findById(id: string): Promise<CouponEntity> {
@@ -318,6 +346,7 @@ export class CouponService {
 ```
 
 **Service rules**:
+
 - Inject only repositories, mappers, external services
 - Group by method: public → private helpers → next public
 - Throw domain-specific exceptions (never generic Error)
@@ -330,6 +359,7 @@ export class CouponService {
 Repositories handle all database access. Extend `TypeOrmBaseRepo`.
 
 **Repository pattern**:
+
 ```typescript
 @Injectable()
 export class CouponRepo extends TypeOrmBaseRepo<CouponEntity> {
@@ -353,6 +383,7 @@ export class CouponRepo extends TypeOrmBaseRepo<CouponEntity> {
 ```
 
 **Repository rules**:
+
 - `readManager`: for find operations (return null if not found, never throw)
 - `writeManager`: for create/update/delete operations
 - `readQB(alias)`: for complex queries with joins, filters, subqueries
@@ -361,6 +392,7 @@ export class CouponRepo extends TypeOrmBaseRepo<CouponEntity> {
 - Use `readManager` for read-only replicas (performance)
 
 **Base repo methods**:
+
 - `create(data: Partial<Entity>): Promise<Entity>`
 - `findById(id: string): Promise<Entity | null>`
 - `update(where: any, data: Partial<Entity>): Promise<Entity>`
@@ -373,6 +405,7 @@ export class CouponRepo extends TypeOrmBaseRepo<CouponEntity> {
 DTOs handle HTTP request/response validation. Use class-validator decorators.
 
 **DTO pattern**:
+
 ```typescript
 export class CreateCouponDto {
   @ApiProperty({ description: 'User ID', example: 'uuid' })
@@ -394,6 +427,7 @@ export class CreateCouponDto {
 **DTO naming**: `{Action}{Entity}Dto` (e.g., `CreateCouponDto`, `UpdateCouponStatusDto`, `IssueCouponDto`)
 
 **DTO rules**:
+
 - Use `snake_case` for property names (matches API contracts)
 - Add `@ApiProperty` / `@ApiPropertyOptional` for Swagger docs
 - Use class-validator decorators (`@IsString`, `@IsEmail`, etc.)
@@ -405,6 +439,7 @@ export class CreateCouponDto {
 Entities represent database tables. Entity properties use **camelCase** (TypeScript convention), but database columns map to **snake_case** via the `name` property in `@Column()`.
 
 **Entity pattern**:
+
 ```typescript
 @Entity({ name: 'coupons' })
 @Index('IDX_coupons_user_id', ['userId'])
@@ -447,6 +482,7 @@ export class CouponEntity {
 ```
 
 **Entity rules**:
+
 - **Properties**: camelCase (TypeScript standard)
 - **Database columns**: Always explicitly map to snake_case via `name` property in `@Column()`
 - **Table name**: snake_case (plural) in `@Entity({ name: 'coupons' })`
@@ -462,6 +498,7 @@ export class CouponEntity {
 Mappers transform data between entities, DTOs, and external APIs. One mapper per service.
 
 **Mapper pattern**:
+
 ```typescript
 @Injectable()
 export class CouponServiceMapper {
@@ -486,6 +523,7 @@ export class CouponServiceMapper {
 ```
 
 **Mapper rules**:
+
 - Named `{ServiceName}ServiceMapper` or `{ServiceName}Mapper`
 - Pure functions, no side effects
 - Each method handles one transformation
@@ -495,6 +533,7 @@ export class CouponServiceMapper {
 ## Enums & Interfaces
 
 ### Enums (E prefix, required)
+
 ```typescript
 export enum ECouponStatus {
   ACTIVE = 'ACTIVE',
@@ -509,9 +548,11 @@ export enum EErrorCodes {
   INVALID_COUPON_CODE = 'INVALID_COUPON_CODE',
 }
 ```
+
 **RULE: All enums must start with E prefix**
 
 ### Interfaces (I prefix, required)
+
 ```typescript
 export interface ICreateCouponParams {
   userId: string;
@@ -519,6 +560,7 @@ export interface ICreateCouponParams {
   discountAmount: number;
 }
 ```
+
 **RULE: All interfaces must start with I prefix (use only for data structures, not services)**
 
 ## Exception Handling
@@ -526,6 +568,7 @@ export interface ICreateCouponParams {
 Centralize all error codes. Create domain-specific exceptions per module.
 
 **Exception pattern**:
+
 ```typescript
 export class CouponException extends HttpException {
   constructor(
@@ -550,6 +593,7 @@ export class CouponExpiredException extends CouponException {
 ```
 
 **Exception rules**:
+
 - All error codes in `src/shared/error/error-codes.enum.ts`
 - Create module-specific base exception
 - Create specific exceptions for each error type
@@ -559,6 +603,7 @@ export class CouponExpiredException extends CouponException {
 ## Roadmap & TODOs
 
 Check `README.md` section **"Roadmap / TODOs"** for:
+
 - Core Auth & Users (OIDC code exchange)
 - Wallet Management (seed encryption, KMS integration)
 - Transaction Indexing (WDK indexer integration, real-time subscriptions)
@@ -570,6 +615,7 @@ Check `README.md` section **"Roadmap / TODOs"** for:
 ## How Claude Should Approach Tasks
 
 ### When Adding a Feature
+
 1. **Understand scope**: Read relevant TODOs and README sections
 2. **Check entities**: Ensure all required fields exist (refer to `docs/architecture.md`)
 3. **Create entity** in `entities/` with proper indexes, timestamps, and snake_case columns
@@ -585,6 +631,7 @@ Check `README.md` section **"Roadmap / TODOs"** for:
 13. **Update README**: Document new env vars, endpoints, assumptions
 
 ### When Fixing a Bug
+
 1. **Reproduce**: Write a test that fails (unit or integration)
 2. **Root cause**: Trace call stack (controller → service → repo → DB)
 3. **Fix once, where all callers route through** (typically the service layer)
@@ -592,12 +639,14 @@ Check `README.md` section **"Roadmap / TODOs"** for:
 5. **Commit**: Reference the bug/issue number if applicable
 
 ### When Refactoring
+
 1. **Tests first**: Ensure existing tests pass
 2. **Make the change**: Preserve behavior, improve clarity
 3. **Tests pass**: No coverage drops
 4. **Update docs**: If architectural changes
 
 ### Code Organization Checklist
+
 - [ ] All classes/types use correct prefixes (E for enum, I for interface)
 - [ ] Files use kebab-case names, classes use PascalCase
 - [ ] Database columns/tables use snake_case
@@ -611,6 +660,7 @@ Check `README.md` section **"Roadmap / TODOs"** for:
 ## Security Considerations
 
 **Never**:
+
 - Hardcode secrets (use env vars + KMS for production)
 - Log sensitive data (passwords, tokens, seed phrases)
 - Use `synchronize: true` in TypeORM
@@ -618,6 +668,7 @@ Check `README.md` section **"Roadmap / TODOs"** for:
 - Commit `.env` file (only `.env.example`)
 
 **Always**:
+
 - Validate env vars at startup (Zod schema)
 - Use structured logging with context (userId, requestId)
 - Use `@nestjs/passport` for auth (no custom JWT validation)
@@ -626,15 +677,18 @@ Check `README.md` section **"Roadmap / TODOs"** for:
 ## Performance & Scalability
 
 **Database**:
+
 - Connection pooling via TypeORM (adjust `max` if load testing reveals bottlenecks)
 - Indexes on: `externalAuthId`, `email`, `walletAddress`, `couponCode` (add more if queries slow)
 - Migration strategy: run at deployment startup
 
 **Caching** (Redis):
+
 - TODO: Implement coupon cache, user session cache, JWKS cache
 - Use `redis.get()` / `redis.set()` with TTL
 
 **Async Tasks** (TODO):
+
 - Coupon issuance listener (queue via BullMQ or similar)
 - Indexer polling for new transactions
 - Webhook retries for failed on-chain claims
@@ -642,6 +696,7 @@ Check `README.md` section **"Roadmap / TODOs"** for:
 ## Deployment
 
 **Pre-Deployment Checklist**:
+
 - [ ] All tests pass (`npm run test:cov`)
 - [ ] No secrets in code or `.env`
 - [ ] Migrations generate cleanly (`npm run migration:generate`)
@@ -650,6 +705,7 @@ Check `README.md` section **"Roadmap / TODOs"** for:
 - [ ] `.env.example` matches all required vars
 
 **At Deployment**:
+
 ```bash
 npm run build
 npm run migration:run  # Before starting the app
@@ -657,6 +713,7 @@ npm run start
 ```
 
 **Monitoring**:
+
 - Health endpoint: `GET /health`
 - Structured logs: All requests, errors, warnings logged to stdout (via Pino)
 - Database connectivity: Checked every health request
@@ -664,7 +721,9 @@ npm run start
 ## Code Style & Best Practices
 
 ### Import Organization
+
 Always order imports in this sequence:
+
 ```typescript
 // 1. External dependencies
 import { Injectable } from '@nestjs/common';
@@ -680,9 +739,11 @@ import { CouponServiceMapper } from './mappers/coupon-service.mapper';
 ```
 
 ### Comments & Documentation
+
 **Principle**: Code should be self-documenting.
 
 **Good comment** (explains WHY, not WHAT):
+
 ```typescript
 // Complex calculation: applies tier discounts + prorates mid-cycle changes
 async calculateSubscriptionPrice(subscription: Subscription): Promise<number> {
@@ -691,6 +752,7 @@ async calculateSubscriptionPrice(subscription: Subscription): Promise<number> {
 ```
 
 **Bad comment** (just describes the code):
+
 ```typescript
 // Gets the coupon by ID
 async getCouponById(id: string): Promise<CouponEntity> {
@@ -699,12 +761,14 @@ async getCouponById(id: string): Promise<CouponEntity> {
 ```
 
 **When to comment**:
+
 - Complex business logic not obvious from names
 - Workarounds for third-party bugs
 - Performance optimizations with trade-offs
 - Non-obvious side effects or edge cases
 
 ### General Best Practices
+
 - **Single Responsibility**: Each class has one reason to change
 - **Dependency Injection**: Always inject via constructor, avoid `new` keyword for services
 - **Type Safety**: Never use `any`. Enable all strict TypeScript checks

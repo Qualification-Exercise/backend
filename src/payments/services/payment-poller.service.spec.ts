@@ -17,6 +17,7 @@ import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
 import { PaymentPollerService } from '@/payments/services/payment-poller.service';
 import { Wallet } from '@/wallets/entities/wallet.entity';
+import { EChainKind } from '@/chains/chain-kind.enum';
 
 function fixture(name: string): ITransfer[] {
   const path = resolve(
@@ -147,6 +148,7 @@ async function build(options: {
   const cursors = options.cursors ?? cursorRepo();
   const walletRows = (options.wallets ?? []).map((w) => ({
     verified: true,
+    chain: EChainKind.EVM,
     ...w,
   }));
   const batch = jest.fn((queries: ITransferQuery[]): Promise<ITransfer[][]> =>
@@ -184,9 +186,7 @@ async function build(options: {
               walletRows.find(
                 (w) =>
                   w.address === where.address &&
-                  w.verified === where.verified &&
-                  (w.srcChainId === undefined ||
-                    Number(w.srcChainId) === Number(where.srcChainId)),
+                  (w.chain === undefined || w.chain === where.chain),
               ) ?? null,
           ),
         },
@@ -294,17 +294,38 @@ describe('PaymentPollerService', () => {
     expect(payments.rows.every((p) => p.userId === null)).toBe(true);
   });
 
-  it('does not attribute a payment to an unverified address', async () => {
+  it('attributes a mainnet-registered wallet to a payment on another EVM chain', async () => {
     const { service, payments } = await build({
       merchants: [merchant()],
       transfers: [sepoliaTransfers],
+      // Registered while paying on Ethereum; the same key spends on Sepolia.
+      wallets: [
+        {
+          userId: 'user-1',
+          address: KNOWN_PAYER,
+          chain: EChainKind.EVM,
+          srcChainId: 1,
+        },
+      ],
+    });
+
+    await service.tick();
+
+    expect(payments.rows.every((p) => p.userId === 'user-1')).toBe(true);
+  });
+
+  it('attributes to a declared address — the payout is what a signature guards', async () => {
+    const { service, payments } = await build({
+      merchants: [merchant()],
+      transfers: [sepoliaTransfers],
+      // Linked but never signed for. The coupon accrues; claiming it needs a
+      // signature from this very address, which a squatter cannot produce.
       wallets: [{ userId: 'user-1', address: KNOWN_PAYER, verified: false }],
     });
 
     await service.tick();
 
-    expect(payments.rows.every((p) => p.userId === null)).toBe(true);
-    expect(payments.rows.every((p) => p.status === 'ignored')).toBe(true);
+    expect(payments.rows.every((p) => p.userId === 'user-1')).toBe(true);
   });
 
   it('orphans a payment the indexer stops reporting', async () => {

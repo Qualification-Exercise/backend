@@ -32,18 +32,35 @@ export const CHAINS: readonly IChain[] = [
     indexer: { blockchain: 'sepolia', tokens: ['usdt'] },
   },
   {
+    // The hosted WDK indexer serves mainnet under these names — `arbitrum` is
+    // Arbitrum One, not its testnet. The testnets below carry explicit names so
+    // one word cannot mean two chains.
+    name: 'Arbitrum One',
+    srcChainId: 42161,
+    kind: EChainKind.EVM,
+    evm: true,
+    indexer: { blockchain: 'arbitrum', tokens: ['usdt', 'xaut'] },
+  },
+  {
+    name: 'Polygon',
+    srcChainId: 137,
+    kind: EChainKind.EVM,
+    evm: true,
+    indexer: { blockchain: 'polygon', tokens: ['usdt', 'xaut'] },
+  },
+  {
     name: 'Arbitrum Sepolia',
     srcChainId: 421614,
     kind: EChainKind.EVM,
     evm: true,
-    indexer: { blockchain: 'arbitrum', tokens: ['usdt', 'xaut'] },
+    indexer: { blockchain: 'arbitrum-sepolia', tokens: ['usdt'] },
   },
   {
     name: 'Polygon Amoy',
     srcChainId: 80002,
     kind: EChainKind.EVM,
     evm: true,
-    indexer: { blockchain: 'polygon', tokens: ['usdt', 'xaut'] },
+    indexer: { blockchain: 'polygon-amoy', tokens: ['usdt'] },
   },
   {
     name: 'Tron',

@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 
 import { ConfigService } from '@nestjs/config';
 
+import { RpcEndpointError } from '@/common/chain/rpc-endpoints';
 import { IssuerConfig, IssuerConfigError } from '@/issuer/issuer-config';
 
 const ISSUER_DIR = resolve(__dirname);
@@ -37,6 +38,7 @@ function configWith(overrides: Record<string, unknown>): () => IssuerConfig {
   const values: Record<string, unknown> = {
     ISSUER_ID: 'issuer-a',
     ISSUER_RPC_URL: 'https://issuer-a.example/rpc',
+    ISSUER_RPC_URLS: '{"1":"https://issuer-a-mainnet.example/rpc"}',
     ISSUER_SIGNING_KEY:
       'env:0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
     ISSUER_PRICE_PROVIDER: 'bitfinex',
@@ -51,6 +53,7 @@ function configWith(overrides: Record<string, unknown>): () => IssuerConfig {
     TOKEN_ADDRESSES: '{"11155111":{"usdt":"0xabc"}}',
     COUPON_CLAIM_CONTRACT_ADDRESS: '0x5Dfc68FD44CCD83DD10cF5aA4B060AAe1602fb13',
     RPC_URLS: '{"11155111":"https://api-node.example/rpc"}',
+    RPC_SHARING_ALLOWED_CHAINS: '[]',
     NODE_ENV: 'development',
     SIGNER_KEY_PASSWORD: '',
     ...overrides,
@@ -66,6 +69,9 @@ describe('IssuerConfig', () => {
   it('accepts an issuer with its own node, key and price provider', () => {
     const config = configWith({})();
     expect(config.id).toBe('issuer-a');
+    expect(config.rpcUrlFor(1)).toBe('https://issuer-a-mainnet.example/rpc');
+    expect(config.rpcUrlFor(11155111)).toBe('https://issuer-a.example/rpc');
+    expect(config.rpcUrlFor(999)).toBeNull();
     expect(config.signer.address).toMatch(/^0x/);
     expect(config.tokenAddress(11155111, 'USDT')).toBe('0xabc');
   });
@@ -73,11 +79,21 @@ describe('IssuerConfig', () => {
   it("refuses to share the API's RPC endpoint", () => {
     expect(
       configWith({ ISSUER_RPC_URL: 'https://api-node.example/rpc/' }),
-    ).toThrow(IssuerConfigError);
+    ).toThrow(RpcEndpointError);
   });
 
   it('refuses to run without a node of its own', () => {
-    expect(configWith({ ISSUER_RPC_URL: '' })).toThrow(IssuerConfigError);
+    expect(configWith({ ISSUER_RPC_URL: '', ISSUER_RPC_URLS: '{}' })).toThrow(
+      IssuerConfigError,
+    );
+  });
+
+  it("refuses to share the API's node on any chain, not just the reward one", () => {
+    expect(
+      configWith({
+        ISSUER_RPC_URLS: '{"1":"https://api-node.example/rpc"}',
+      }),
+    ).toThrow(RpcEndpointError);
   });
 
   it('refuses to run without the contract it signs for', () => {
@@ -86,18 +102,69 @@ describe('IssuerConfig', () => {
     );
   });
 
+  it('allows a shared endpoint only on chains explicitly listed — the sharing exception', () => {
+    // Tron and Bitcoin have one free public API each. The exception is opt-in
+    // and per chain, so the guarantee still holds everywhere it can.
+    expect(
+      configWith({
+        ISSUER_RPC_URLS: '{"4294967297":"https://api.trongrid.io"}',
+        RPC_URLS: '{"4294967297":"https://api.trongrid.io"}',
+        RPC_SHARING_ALLOWED_CHAINS: '[4294967297]',
+      }),
+    ).not.toThrow();
+
+    expect(
+      configWith({
+        ISSUER_RPC_URLS: '{"4294967297":"https://api.trongrid.io"}',
+        RPC_URLS: '{"4294967297":"https://api.trongrid.io"}',
+        RPC_SHARING_ALLOWED_CHAINS: '[]',
+      }),
+    ).toThrow(RpcEndpointError);
+  });
+
   it('a second issuer is configuration: a different key gives a different signer', () => {
     const a = configWith({})();
     const b = configWith({
       ISSUER_ID: 'issuer-b',
       ISSUER_RPC_URL: 'https://issuer-b.example/rpc',
+      ISSUER_RPC_URLS: '{"1":"https://issuer-b-mainnet.example/rpc"}',
       ISSUER_PRICE_PROVIDER: 'coingecko',
       ISSUER_SIGNING_KEY:
         'env:0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba',
     })();
 
     expect(b.signer.address).not.toBe(a.signer.address);
-    expect(b.rpcUrl).not.toBe(a.rpcUrl);
+    expect(b.rpcUrlFor(11155111)).not.toBe(a.rpcUrlFor(11155111));
     expect(b.priceProvider).not.toBe(a.priceProvider);
+  });
+});
+
+/**
+ * Module-graph isolation, not just import hygiene: the indexer client and the
+ * payment poller must not exist inside the issuer process at all. A transitive
+ * import would start a second poller against the shared indexer budget and put
+ * the client one `inject()` away from the layer that exists to distrust it.
+ */
+describe('issuer module graph', () => {
+  it('pulls in neither the indexer client nor the payment poller', async () => {
+    const { IssuerModule } = await import('@/issuer/issuer.module');
+
+    // Walk the declared `imports` of every module reachable from the issuer.
+    const seen = new Set<object>();
+    const collect = (mod: object | undefined): void => {
+      if (!mod || seen.has(mod)) return;
+      seen.add(mod);
+      const imports = (Reflect.getMetadata('imports', mod) ?? []) as object[];
+      for (const imported of imports) {
+        // `forRoot`-style dynamic modules carry their own `module` reference.
+        const target = (imported as { module?: object }).module ?? imported;
+        collect(target);
+      }
+    };
+    collect(IssuerModule);
+
+    const names = [...seen].map((m) => (m as { name?: string }).name ?? '');
+    expect(names).not.toContain('IndexerModule');
+    expect(names).not.toContain('PaymentsModule');
   });
 });

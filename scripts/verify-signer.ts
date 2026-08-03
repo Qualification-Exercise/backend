@@ -8,13 +8,6 @@ import { recoverTypedDataAddress, type Hex } from 'viem';
 import { ENTITLEMENT_TYPES, entitlementDomain } from '@/issuer/entitlement';
 import { createIssuerSigner } from '@/issuer/signer';
 
-/**
- * Signs the contracts repo's committed entitlement fixture with the real
- * `@tetherto/wdk-wallet-evm` account, from the encrypted key in the env.
- *
- * Lives outside Jest because Jest's CommonJS runtime cannot import the ESM
- * package — this is the check that the production signing path actually works.
- */
 async function main() {
   const fixture = JSON.parse(
     readFileSync(

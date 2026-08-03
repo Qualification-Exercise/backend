@@ -84,6 +84,18 @@ function normalizeBtcLike(address: string): string {
   return BECH32_RE.test(address) ? address.toLowerCase() : address;
 }
 
+/**
+ * Tron hands back addresses as hex: 21 bytes with a `41` prefix in logs, or a
+ * 32-byte topic whose last 20 bytes are the address. Both reduce to the same
+ * base58 form the merchant table stores.
+ */
+export function tronAddressFromHex(hex: string): string {
+  const bare = hex.replace(/^0x/, '').toLowerCase();
+  if (bare.length < 40) return '';
+  const body = bare.slice(-40);
+  return tronFromEvmAddress(`0x${body}`);
+}
+
 export function normalizeAddress(input: string): INormalizedAddress {
   const address = input.trim();
   const family = classify(address);
@@ -97,10 +109,11 @@ export function normalizeAddress(input: string): INormalizedAddress {
   }
 }
 
-export function ownershipMessage(nonce: string): string {
+export function claimMessage(nonce: string, coupon: string): string {
   return [
-    'WDK Cashback: prove wallet ownership',
-    'This signature links this address to your account. It authorises no transfer.',
+    'WDK Cashback: claim coupon',
+    `Coupon: ${coupon}`,
+    'This signature authorises the payout of this coupon to your wallet. It moves no funds.',
     `Nonce: ${nonce}`,
   ].join('\n');
 }
