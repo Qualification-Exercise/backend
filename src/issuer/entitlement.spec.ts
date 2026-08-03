@@ -71,6 +71,9 @@ function fakeWdk(): WdkLoader {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           signTypedData: (data: any) =>
             account.signTypedData({ ...data, primaryType: 'Entitlement' }),
+          signTransaction: async () => {
+            throw new Error('an issuer key never signs a transaction');
+          },
         };
       },
     },

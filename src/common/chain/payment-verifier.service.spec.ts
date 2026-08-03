@@ -6,11 +6,11 @@ import {
 } from 'viem';
 
 import { paymentRef } from '@/chains';
-import { IssuerConfig } from '@/issuer/issuer-config';
+import type { IChainViewConfig } from '@/common/chain/chain-view.config';
 import {
   PaymentVerifierService,
   VerificationError,
-} from '@/issuer/services/payment-verifier.service';
+} from '@/common/chain/payment-verifier.service';
 import type { Payment } from '@/payments/entities/payment.entity';
 
 const SEPOLIA = 11155111;
@@ -75,7 +75,7 @@ function build(
     id: 'issuer-a',
     rpcUrl: 'https://issuer-a.example/rpc',
     tokenAddress: () => TOKEN,
-  } as unknown as IssuerConfig;
+  } as unknown as IChainViewConfig;
 
   const verifier = new PaymentVerifierService(config, {
     depthFor: () => 12,

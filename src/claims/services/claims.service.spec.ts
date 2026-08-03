@@ -92,7 +92,6 @@ function build(world: IWorld = {}) {
     createQueryBuilder: jest.fn(),
   };
   const idempotency = {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     run: jest.fn(
       (
         _u: string,

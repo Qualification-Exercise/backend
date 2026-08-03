@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   createPublicClient,
   decodeEventLog,
@@ -10,7 +10,10 @@ import {
 
 import { chainBySrcChainId, normalizeTxHash, paymentRef } from '@/chains';
 import { decimalsFor, toScaled } from '@/coupons/accrual';
-import { IssuerConfig } from '@/issuer/issuer-config';
+import {
+  CHAIN_VIEW_CONFIG,
+  type IChainViewConfig,
+} from '@/common/chain/chain-view.config';
 import { ConfirmationPolicy } from '@/payments/confirmation-policy';
 import type { Payment } from '@/payments/entities/payment.entity';
 import { assetForToken } from '@/pricing/price-source';
@@ -45,7 +48,8 @@ export class PaymentVerifierService {
   private client?: PublicClient;
 
   constructor(
-    private readonly config: IssuerConfig,
+    @Inject(CHAIN_VIEW_CONFIG)
+    private readonly config: IChainViewConfig,
     private readonly confirmations: ConfirmationPolicy,
   ) {}
 
