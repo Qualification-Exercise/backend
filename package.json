@@ -21,7 +21,12 @@
     "migration:revert": "npm run typeorm -- migration:revert",
     "seed": "ts-node -r tsconfig-paths/register src/database/seed.ts",
     "dev:token": "ts-node -r tsconfig-paths/register scripts/dev-token.ts",
-    "poll:once": "ts-node -r tsconfig-paths/register scripts/poll-once.ts"
+    "poll:once": "ts-node -r tsconfig-paths/register scripts/poll-once.ts",
+    "issuer": "ts-node -r tsconfig-paths/register src/issuer/main.ts",
+    "relayer": "ts-node -r tsconfig-paths/register src/relayer/main.ts",
+    "key:password": "ts-node -r tsconfig-paths/register scripts/encrypt-key.ts --password",
+    "key:encrypt": "ts-node -r tsconfig-paths/register scripts/encrypt-key.ts",
+    "verify:signer": "ts-node -r tsconfig-paths/register scripts/verify-signer.ts"
   },
   "repository": {
     "type": "git",
@@ -54,9 +59,11 @@
     "@nestjs/platform-express": "^11.1.28",
     "@nestjs/swagger": "^11.4.6",
     "@nestjs/typeorm": "^11.0.3",
+    "@noble/hashes": "^2.2.0",
     "@scure/base": "^1.2.6",
     "@tetherto/wdk-pricing-bitfinex-http": "^1.0.0-beta.4",
     "@tetherto/wdk-utils": "^1.0.0-beta.10",
+    "@tetherto/wdk-wallet-evm": "^1.0.0-beta.16",
     "axios": "^1.18.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",

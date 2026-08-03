@@ -11,7 +11,10 @@ import {
 } from 'typeorm';
 import { Coupon } from '@/coupons/entities/coupon.entity';
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
-import { EClaimStatus } from '@/claims/enums/claim-status.enum';
+import {
+  EClaimFailureReason,
+  EClaimStatus,
+} from '@/claims/enums/claim-status.enum';
 
 @Entity('claims')
 @Index('IDX_claims_coupon_id', ['couponId'], { unique: true })
@@ -39,6 +42,15 @@ export class ClaimEntity {
     default: EClaimStatus.PENDING_ATTESTATION,
   })
   status: EClaimStatus;
+
+  @Column({ name: 'chain_id', type: 'bigint' })
+  chainId: number;
+
+  @Column({ name: 'failure_reason', type: 'varchar', nullable: true })
+  failureReason: EClaimFailureReason | null;
+
+  @Column({ name: 'failure_detail', type: 'varchar', nullable: true })
+  failureDetail: string | null;
 
   @Column({ name: 'tx_hash', type: 'varchar', nullable: true })
   txHash: string | null;
