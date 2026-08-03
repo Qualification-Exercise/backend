@@ -1,15 +1,17 @@
 import {
+  Check,
   Entity,
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
   Index,
   ManyToOne,
-  OneToOne,
+  OneToMany,
   UpdateDateColumn,
 } from 'typeorm';
 import { User } from '@/users/entities/user.entity';
-import { UtilityTokenClaim } from './utility-token-claim.entity';
+import { ClaimEntity } from '@/claims/entities/claim.entity';
+import { type CouponStatus } from '@/coupons/enums/coupon-status.enum';
 
 /**
  * ```
@@ -23,17 +25,11 @@ import { UtilityTokenClaim } from './utility-token-claim.entity';
  * so an illegal move fails at the database rather than in whichever service got
  * its state handling wrong.
  */
-export type CouponStatus =
-  | 'PENDING'
-  | 'ISSUED'
-  | 'PENDING_ATTESTATION'
-  | 'ATTESTED'
-  | 'CLAIM_SUBMITTED'
-  | 'CLAIMED'
-  | 'EXPIRED'
-  | 'ORPHANED';
-
 @Entity('coupons')
+@Check(
+  'coupons_initial_status',
+  `status IN ('PENDING','ISSUED','PENDING_ATTESTATION','ATTESTED','CLAIM_SUBMITTED','CLAIMED','EXPIRED','ORPHANED')`,
+)
 export class Coupon {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -70,9 +66,6 @@ export class Coupon {
   @ManyToOne(() => User, (user) => user.coupons, { onDelete: 'CASCADE' })
   user: User;
 
-  @OneToOne(() => UtilityTokenClaim, (claim) => claim.coupon, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
-  claim: UtilityTokenClaim;
+  @OneToMany(() => ClaimEntity, (claim) => claim.coupon)
+  claims: ClaimEntity[];
 }
