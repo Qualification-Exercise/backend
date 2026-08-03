@@ -3,6 +3,7 @@ import { PaymentIngestion1785270185648 } from './1785270185648-PaymentIngestion'
 import { PriceSnapshots1785272026280 } from './1785272026280-PriceSnapshots';
 import { AccrualCoupons1785272858122 } from './1785272858122-AccrualCoupons';
 import { AddUserNames1785318619822 } from './1785318619822-AddUserNames';
+import { DocSchemaAlignment1785404000000 } from './1785404000000-DocSchemaAlignment';
 
 /**
  * Listed explicitly, not globbed: `nest build` bundles the app into a single
@@ -15,4 +16,5 @@ export const migrations = [
   PriceSnapshots1785272026280,
   AccrualCoupons1785272858122,
   AddUserNames1785318619822,
+  DocSchemaAlignment1785404000000,
 ];
