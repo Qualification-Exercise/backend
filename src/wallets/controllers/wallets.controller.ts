@@ -12,12 +12,6 @@ import { WalletsService } from '@/wallets/services/wallets.service';
 @UseGuards(JwtAuthGuard)
 export class WalletsController {
   constructor(private readonly walletsService: WalletsService) {}
-
-  @Get('challenge')
-  challenge(@CurrentUser() user: IAuthUser) {
-    return this.walletsService.createChallenge(user.userId);
-  }
-
   @Post()
   link(@CurrentUser() user: IAuthUser, @Body() dto: LinkWalletsDTO) {
     return this.walletsService.linkWallets(user.userId, dto);

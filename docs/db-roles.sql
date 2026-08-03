@@ -35,3 +35,18 @@ GRANT UPDATE (status, tx_hash, tx_nonce, failure_reason, failure_detail, updated
 GRANT INSERT, SELECT ON settlements TO relayer;
 REVOKE INSERT, UPDATE, DELETE ON attestations FROM relayer;
 REVOKE INSERT, UPDATE, DELETE ON coupons, payments, price_snapshots FROM relayer;
+
+-- Holds no key. Records what the chain already did.
+CREATE ROLE settlement LOGIN;
+GRANT SELECT ON claims, coupons, payments TO settlement;
+GRANT INSERT, SELECT ON settlements TO settlement;
+GRANT SELECT, INSERT, UPDATE ON event_cursors TO settlement;
+GRANT UPDATE (status, failure_reason, failure_detail, updated_at) ON claims TO settlement;
+REVOKE INSERT, UPDATE, DELETE ON attestations, coupons, payments FROM settlement;
+
+
+-- A detective control: it observes and it can pause on-chain. It repairs nothing.
+CREATE ROLE monitor LOGIN;
+GRANT SELECT ON coupons, claims, attestations, payments, price_snapshots,
+  merchants, settlements, indexer_cursors, signers, service_counters TO monitor;
+REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public FROM monitor;

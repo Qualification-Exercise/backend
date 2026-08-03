@@ -19,9 +19,6 @@ import { EChainKind } from '@/chains/chain-kind.enum';
   unique: true,
   where: '"isPrimary"',
 })
-@Index('IDX_wallets_lookup', ['srcChainId', 'address'], {
-  where: '"verified"',
-})
 export class Wallet {
   @PrimaryGeneratedColumn('uuid')
   id: string;

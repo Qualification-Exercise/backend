@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 import {
   BadRequestException,
@@ -13,9 +13,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, type EntityManager } from 'typeorm';
+import { LessThan, Repository, type EntityManager } from 'typeorm';
 
 import { EChainKind } from '@/chains/chain-kind.enum';
+import { ClaimChallenge } from '@/claims/entities/claim-challenge.entity';
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
 import type { CreateClaimDTO } from '@/claims/dtos/create-claim.dto';
@@ -33,9 +34,20 @@ import {
   hashRequest,
 } from '@/idempotency/services/idempotency.service';
 import { ConfirmationPolicy } from '@/payments/confirmation-policy';
+import { claimMessage, verifyOwnership } from '@/wallets/address';
+import { WalletsService } from '@/wallets/services/wallets.service';
 import { SettlementEntity } from '@/settlements/entities/settlement.entity';
 
 const PG_UNIQUE_VIOLATION = '23505';
+
+const CHALLENGE_TTL_MS = 5 * 60 * 1000;
+
+export interface IClaimChallengeResponse {
+  challengeId: string;
+  nonce: string;
+  message: string;
+  expiresAt: string;
+}
 
 export interface IClaimCreatedResponse {
   claimId: string;
@@ -62,6 +74,7 @@ export interface IClaimResponse {
 
 interface ICouponRow {
   id: string;
+  code: string | null;
   paymentRef: string;
   amount: string;
   userId: string;
@@ -101,6 +114,9 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     private readonly attestations: Repository<AttestationEntity>,
     @InjectRepository(SettlementEntity)
     private readonly settlements: Repository<SettlementEntity>,
+    @InjectRepository(ClaimChallenge)
+    private readonly challenges: Repository<ClaimChallenge>,
+    private readonly wallets: WalletsService,
     private readonly idempotency: IdempotencyService,
     private readonly confirmations: ConfirmationPolicy,
     configService: ConfigService<Env, true>,
@@ -125,6 +141,56 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);
+  }
+
+  async createChallenge(
+    userId: string,
+    coupon: string,
+  ): Promise<IClaimChallengeResponse> {
+    await this.challenges.delete({ userId, expiresAt: LessThan(new Date()) });
+
+    const challenge = await this.challenges.save(
+      this.challenges.create({
+        userId,
+        nonce: `0x${randomBytes(32).toString('hex')}`,
+        expiresAt: new Date(Date.now() + CHALLENGE_TTL_MS),
+        consumedAt: null,
+      }),
+    );
+
+    return {
+      challengeId: challenge.id,
+      nonce: challenge.nonce,
+      message: claimMessage(challenge.nonce, normalizedForLookup(coupon)),
+      expiresAt: challenge.expiresAt.toISOString(),
+    };
+  }
+
+  private async consumeChallenge(
+    userId: string,
+    challengeId: string,
+  ): Promise<string> {
+    const claimed = await this.challenges
+      .createQueryBuilder()
+      .update(ClaimChallenge)
+      .set({ consumedAt: new Date() })
+      .where('id = :challengeId', { challengeId })
+      .andWhere('"userId" = :userId', { userId })
+      .andWhere('"consumedAt" IS NULL')
+      .andWhere('"expiresAt" > now()')
+      .returning('nonce')
+      .execute();
+
+    const nonce = claimed.raw?.[0]?.nonce as string | undefined;
+    if (!nonce) {
+      throw new BadRequestException(
+        apiError(
+          EErrorCodes.CHALLENGE_INVALID,
+          'Challenge is unknown, already used, expired, or belongs to another user',
+        ),
+      );
+    }
+    return nonce;
   }
 
   async create(
@@ -152,7 +218,11 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     return this.idempotency.run(
       userId,
       idempotencyKey.trim(),
-      hashRequest({ couponId: dto.couponId ?? null, code: dto.code ?? null }),
+      hashRequest({
+        couponId: dto.couponId ?? null,
+        code: dto.code ?? null,
+        challengeId: dto.challengeId,
+      }),
       (em) => this.claimOne(em, userId, dto),
     );
   }
@@ -166,7 +236,13 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
 
     await this.assertNotInCooldown(em, userId);
     const coupon = await this.resolveCoupon(em, userId, dto);
-    const recipient = await this.resolveRecipient(em, userId);
+
+    const recipient = await this.proveAndResolveRecipient(
+      em,
+      userId,
+      dto,
+      coupon,
+    );
 
     const moved: unknown[] = await em.query(
       `UPDATE coupons SET status = $1, "updatedAt" = now()
@@ -267,13 +343,44 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     return coupon;
   }
 
+  private async proveAndResolveRecipient(
+    em: EntityManager,
+    userId: string,
+    dto: CreateClaimDTO,
+    coupon: ICouponRow,
+  ): Promise<string> {
+    const recipient = await this.resolveRecipient(em, userId);
+    const nonce = await this.consumeChallenge(userId, dto.challengeId);
+    const message = claimMessage(nonce, coupon.code ?? coupon.id);
+
+    const proven = await verifyOwnership(
+      recipient,
+      message,
+      dto.signature as `0x${string}`,
+    );
+    if (!proven) {
+      this.logger.warn(
+        `security_event=claim.signature_invalid userId=${userId} recipient=${recipient}`,
+      );
+      throw new BadRequestException(
+        apiError(
+          EErrorCodes.OWNERSHIP_PROOF_INVALID,
+          'Signature does not prove control of the payout address',
+        ),
+      );
+    }
+
+    await this.wallets.confirmOwnership(em, userId, recipient);
+    return recipient;
+  }
+
   private async resolveRecipient(
     em: EntityManager,
     userId: string,
   ): Promise<string> {
     const [row] = (await em.query(
       `SELECT address FROM wallets
-        WHERE "userId" = $1 AND chain = $2 AND verified AND "isPrimary"
+        WHERE "userId" = $1 AND chain = $2 AND "isPrimary"
         LIMIT 1`,
       [userId, EChainKind.EVM],
     )) as { address: string }[];
@@ -282,7 +389,7 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException(
         apiError(
           EErrorCodes.WALLET_NOT_LINKED,
-          'Link and verify an EVM wallet before claiming',
+          'Link an EVM wallet before claiming',
         ),
       );
     }

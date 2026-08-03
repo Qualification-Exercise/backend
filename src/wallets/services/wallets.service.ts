@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -6,35 +5,21 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThan, Repository, type EntityManager } from 'typeorm';
-import type { Hex } from 'viem';
+import { In, Repository, type EntityManager } from 'typeorm';
 
 import { chainKindOf } from '@/chains';
 import { EChainKind } from '@/chains/chain-kind.enum';
 import { apiError } from '@/common/api-error';
 import {
   CHAIN_KIND_OF_FAMILY,
-  FAMILY_OF_CHAIN_KIND,
   InvalidAddressError,
   normalizeAddress,
-  ownershipMessage,
-  proofSupported,
-  verifyOwnership,
 } from '@/wallets/address';
 import { Wallet } from '@/wallets/entities/wallet.entity';
-import { WalletChallenge } from '@/wallets/entities/wallet-challenge.entity';
 import type {
   LinkWalletEntryDTO,
   LinkWalletsDTO,
 } from '@/wallets/dtos/link-wallets.dto';
-
-const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-
-export interface IChallengeResponse {
-  challengeId: string;
-  nonce: string;
-  expiresAt: string;
-}
 
 export interface IWalletResponse {
   chain: EChainKind;
@@ -45,12 +30,12 @@ export interface IWalletResponse {
   linkedAt: string;
 }
 
+/** One request entry, once it has survived validation. */
 interface IResolvedEntry {
   chain: EChainKind;
   srcChainId: number;
   address: string;
   path: string | null;
-  verified: boolean;
 }
 
 @Injectable()
@@ -60,28 +45,7 @@ export class WalletsService {
   constructor(
     @InjectRepository(Wallet)
     private readonly wallets: Repository<Wallet>,
-    @InjectRepository(WalletChallenge)
-    private readonly challenges: Repository<WalletChallenge>,
   ) {}
-
-  async createChallenge(userId: string): Promise<IChallengeResponse> {
-    await this.challenges.delete({ userId, expiresAt: LessThan(new Date()) });
-
-    const challenge = await this.challenges.save(
-      this.challenges.create({
-        userId,
-        nonce: `0x${randomBytes(32).toString('hex')}`,
-        expiresAt: new Date(Date.now() + CHALLENGE_TTL_MS),
-        consumedAt: null,
-      }),
-    );
-
-    return {
-      challengeId: challenge.id,
-      nonce: challenge.nonce,
-      expiresAt: challenge.expiresAt.toISOString(),
-    };
-  }
 
   async listWallets(userId: string): Promise<IWalletResponse[]> {
     const rows = await this.wallets.find({
@@ -99,22 +63,32 @@ export class WalletsService {
     this.assertOneAddressPerChain(entries);
     this.assertHasPrimary(entries);
 
-    const nonce = await this.consumeChallenge(userId, dto.challengeId);
-    const message = ownershipMessage(nonce);
-
-    for (let i = 0; i < entries.length; i++) {
-      entries[i].verified = await this.proveOwnership(
-        userId,
-        entries[i],
-        dto.wallets[i].signature,
-        message,
-      );
-    }
-
     const stored = await this.wallets.manager.transaction((em) =>
       this.store(em, userId, entries),
     );
     return { wallets: stored.map((w) => this.toResponse(w)) };
+  }
+
+  async confirmOwnership(
+    em: EntityManager,
+    userId: string,
+    address: string,
+  ): Promise<void> {
+    const existing = await em.findOne(Wallet, { where: { address } });
+
+    if (existing && existing.userId !== userId) {
+      this.logger.error(
+        `security_event=wallet.address_reassigned address=${address} ` +
+          `from=${existing.userId} to=${userId} reason=proved_ownership`,
+      );
+      await em.delete(Wallet, { id: existing.id });
+    }
+
+    await em.update(
+      Wallet,
+      { userId, address },
+      { verified: true, verifiedAt: new Date() },
+    );
   }
 
   private resolveEntry(entry: LinkWalletEntryDTO): IResolvedEntry {
@@ -143,7 +117,6 @@ export class WalletsService {
       srcChainId: entry.srcChainId,
       address,
       path: entry.path ?? null,
-      verified: false,
     };
   }
 
@@ -191,75 +164,6 @@ export class WalletsService {
     }
   }
 
-  private async proveOwnership(
-    userId: string,
-    entry: IResolvedEntry,
-    signature: string | undefined,
-    message: string,
-  ): Promise<boolean> {
-    if (!proofSupported(FAMILY_OF_CHAIN_KIND[entry.chain])) {
-      this.logger.log(
-        `Storing ${entry.chain} address unverified: no message signing available`,
-      );
-      return false;
-    }
-
-    if (!signature) {
-      throw new BadRequestException(
-        apiError(
-          'SIGNATURE_REQUIRED',
-          `A ${entry.chain} address must be proven with a signature`,
-          { chain: entry.chain },
-        ),
-      );
-    }
-
-    const proven = await verifyOwnership(
-      entry.address,
-      message,
-      signature as Hex,
-    );
-    if (!proven) {
-      this.logger.warn(
-        `security_event=wallet.ownership_proof_failed userId=${userId} address=${entry.address}`,
-      );
-      throw new BadRequestException(
-        apiError(
-          'OWNERSHIP_PROOF_INVALID',
-          'Signature does not prove control of this address',
-        ),
-      );
-    }
-    return true;
-  }
-
-  private async consumeChallenge(
-    userId: string,
-    challengeId: string,
-  ): Promise<string> {
-    const claimed = await this.challenges
-      .createQueryBuilder()
-      .update(WalletChallenge)
-      .set({ consumedAt: new Date() })
-      .where('id = :challengeId', { challengeId })
-      .andWhere('"userId" = :userId', { userId })
-      .andWhere('"consumedAt" IS NULL')
-      .andWhere('"expiresAt" > now()')
-      .returning('nonce')
-      .execute();
-
-    const nonce = claimed.raw?.[0]?.nonce;
-    if (!nonce) {
-      throw new BadRequestException(
-        apiError(
-          'CHALLENGE_INVALID',
-          'Challenge is unknown, already used, expired, or belongs to another user',
-        ),
-      );
-    }
-    return nonce as string;
-  }
-
   private async store(
     em: EntityManager,
     userId: string,
@@ -276,9 +180,9 @@ export class WalletsService {
         (w) => w.address === entry.address && w.chain === entry.chain,
       );
       if (taken && taken.userId !== userId) {
-        this.logger.error(
+        this.logger.warn(
           `security_event=wallet.address_already_linked address=${entry.address} ` +
-            `claimedBy=${userId} ownedBy=${taken.userId}`,
+            `claimedBy=${userId} heldBy=${taken.userId} verified=${taken.verified}`,
         );
         throw new ConflictException(
           apiError(
@@ -313,8 +217,8 @@ export class WalletsService {
           address: entry.address,
           path: entry.path,
           isPrimary: entry.chain === EChainKind.EVM,
-          verified: entry.verified,
-          verifiedAt: entry.verified ? new Date() : null,
+          verified: false,
+          verifiedAt: null,
         }),
       );
     }

@@ -71,7 +71,7 @@ export class RelayerRunnerService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     this.logger.log(
       `Relayer ${this.config.id} up as ${this.config.signer.address} ` +
-        `(rpc=${redact(this.config.rpcUrl)})`,
+        `(reward-rpc=${redact(this.config.rewardRpcUrl)})`,
     );
     if (this.config.pollIntervalMs <= 0) {
       this.logger.log(
@@ -270,7 +270,7 @@ export class RelayerRunnerService implements OnModuleInit, OnModuleDestroy {
 
   private rpc(): PublicClient {
     this.client ??= createPublicClient({
-      transport: http(this.config.rpcUrl),
+      transport: http(this.config.rewardRpcUrl),
     });
     return this.client;
   }

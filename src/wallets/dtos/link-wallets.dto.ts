@@ -7,8 +7,6 @@ import {
   IsOptional,
   IsPositive,
   IsString,
-  IsUUID,
-  Matches,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
@@ -31,18 +29,9 @@ export class LinkWalletEntryDTO {
   @IsString()
   @MaxLength(64)
   path?: string;
-
-  @IsOptional()
-  @Matches(/^0x[0-9a-fA-F]{130}$/, {
-    message: 'signature must be a 65-byte hex secp256k1 signature',
-  })
-  signature?: string;
 }
 
 export class LinkWalletsDTO {
-  @IsUUID()
-  challengeId: string;
-
   @ValidateNested({ each: true })
   @Type(() => LinkWalletEntryDTO)
   @ArrayMinSize(1)

@@ -8,7 +8,7 @@
  */
 export interface IChainViewConfig {
   readonly id: string;
-  readonly rpcUrl: string;
+  rpcUrlFor(srcChainId: number): string | null;
   tokenAddress(srcChainId: number, token: string): string | null;
 }
 

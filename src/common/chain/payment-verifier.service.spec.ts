@@ -7,10 +7,7 @@ import {
 
 import { paymentRef } from '@/chains';
 import type { IChainViewConfig } from '@/common/chain/chain-view.config';
-import {
-  PaymentVerifierService,
-  VerificationError,
-} from '@/common/chain/payment-verifier.service';
+import { PaymentVerifierService } from '@/common/chain/payment-verifier.service';
 import type { Payment } from '@/payments/entities/payment.entity';
 
 const SEPOLIA = 11155111;
@@ -73,13 +70,17 @@ function build(
 ) {
   const config = {
     id: 'issuer-a',
-    rpcUrl: 'https://issuer-a.example/rpc',
+    rpcUrlFor: (srcChainId: number) =>
+      srcChainId === SEPOLIA ? 'https://issuer-a.example/rpc' : null,
     tokenAddress: () => TOKEN,
   } as unknown as IChainViewConfig;
 
-  const verifier = new PaymentVerifierService(config, {
-    depthFor: () => 12,
-  } as never);
+  const verifier = new PaymentVerifierService(
+    config,
+    { depthFor: () => 12 } as never,
+    { verify: jest.fn() } as never,
+    { verify: jest.fn() } as never,
+  );
 
   const client = {
     getTransactionReceipt: async () => {
@@ -96,7 +97,9 @@ function build(
     getBlock: async () => ({ hash: chain.blockHash ?? BLOCK_HASH }),
     getBlockNumber: async () => BigInt(chain.head ?? BLOCK + 20),
   };
-  (verifier as unknown as { client: unknown }).client = client;
+  (verifier as unknown as { clients: Map<number, unknown> }).clients = new Map([
+    [SEPOLIA, client],
+  ]);
 
   return verifier;
 }
@@ -193,9 +196,24 @@ describe('PaymentVerifierService', () => {
     );
   });
 
-  it('refuses to guess about a chain it has no node for', async () => {
+  it('refuses a chain it has no endpoint for rather than asking another node', async () => {
     await expect(
-      build().verify(payment({ srcChainId: 4294967298 }), MERCHANTS),
-    ).rejects.toThrow(VerificationError);
+      build().verify(
+        payment({
+          srcChainId: 4294967298,
+          paymentRef: paymentRef(4294967298, TX, 3),
+        }),
+        MERCHANTS,
+      ),
+    ).rejects.toThrow(/NO_NODE/);
+  });
+
+  it('refuses an EVM chain it has no endpoint for rather than asking another chain', async () => {
+    await expect(
+      build().verify(
+        payment({ srcChainId: 1, paymentRef: paymentRef(1, TX, 3) }),
+        MERCHANTS,
+      ),
+    ).rejects.toThrow(/NO_NODE/);
   });
 });

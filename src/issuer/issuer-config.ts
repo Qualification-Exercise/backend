@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Hex } from 'viem';
 
 import type { Env } from '@/config/env';
+import { assertDistinct, buildEndpoints } from '@/common/chain/rpc-endpoints';
 import { createIssuerSigner, type IIssuerSigner } from '@/issuer/signer';
 
 export class IssuerConfigError extends Error {}
@@ -10,7 +11,7 @@ export class IssuerConfigError extends Error {}
 @Injectable()
 export class IssuerConfig {
   readonly id: string;
-  readonly rpcUrl: string;
+  readonly endpoints: Record<string, string>;
   readonly priceProvider: 'bitfinex' | 'coingecko';
   readonly signer: IIssuerSigner;
   readonly chainId: number;
@@ -26,7 +27,11 @@ export class IssuerConfig {
 
   constructor(configService: ConfigService<Env, true>) {
     this.id = configService.get('ISSUER_ID');
-    this.rpcUrl = configService.get('ISSUER_RPC_URL');
+    this.endpoints = buildEndpoints(
+      configService.get('REWARD_CHAIN_ID'),
+      configService.get('ISSUER_RPC_URL'),
+      configService.get('ISSUER_RPC_URLS'),
+    );
     this.priceProvider = configService.get('ISSUER_PRICE_PROVIDER');
     this.chainId = configService.get('REWARD_CHAIN_ID');
     this.toleranceBps = configService.get('PRICE_TOLERANCE_BPS');
@@ -47,20 +52,21 @@ export class IssuerConfig {
     this.verifyingContract = contract as Hex;
 
     if (!this.id) throw new IssuerConfigError('ISSUER_ID must be set');
-    if (!this.rpcUrl) {
+    if (Object.keys(this.endpoints).length === 0) {
       throw new IssuerConfigError(
-        'ISSUER_RPC_URL must be set: an issuer verifies against its own node',
+        'ISSUER_RPC_URLS must name a node per payment chain: an issuer verifies for itself',
       );
     }
 
     const shared: Record<string, string> = JSON.parse(
       configService.get('RPC_URLS'),
     );
-    if (Object.values(shared).some((url) => sameEndpoint(url, this.rpcUrl))) {
-      throw new IssuerConfigError(
-        `ISSUER_RPC_URL must differ from the API's RPC endpoints (${this.id})`,
-      );
-    }
+    assertDistinct(
+      this.endpoints,
+      Object.values(shared),
+      `Issuer ${this.id}`,
+      JSON.parse(configService.get('RPC_SHARING_ALLOWED_CHAINS')) as number[],
+    );
 
     this.signer = createIssuerSigner(
       configService.get('ISSUER_SIGNING_KEY') || '',
@@ -71,14 +77,14 @@ export class IssuerConfig {
     );
   }
 
+  rpcUrlFor(srcChainId: number): string | null {
+    return this.endpoints[String(srcChainId)] ?? null;
+  }
+
   /** The token contract a Transfer log must have come from, if we know it. */
   tokenAddress(srcChainId: number, token: string): string | null {
     return (
       this.tokenAddresses[String(srcChainId)]?.[token.toLowerCase()] ?? null
     );
   }
-}
-
-function sameEndpoint(a: string, b: string): boolean {
-  return a.trim().replace(/\/+$/, '') === b.trim().replace(/\/+$/, '');
 }
