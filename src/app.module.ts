@@ -12,6 +12,8 @@ import { PricingModule } from '@/pricing/pricing.module';
 import { AppConfigModule } from '@/config/config.module';
 import { AuthModule } from '@/auth/auth.module';
 import { HealthModule } from '@/health/health.module';
+import { ClaimsModule } from '@/claims/claims.module';
+import { AttestationsModule } from '@/attestations/attestations.module';
 import { APP_FILTER } from '@nestjs/core';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
@@ -33,6 +35,8 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
     PricingModule,
     AppConfigModule,
     HealthModule,
+    ClaimsModule,
+    AttestationsModule,
   ],
   providers: [
     {
