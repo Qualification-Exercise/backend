@@ -18,6 +18,13 @@ export interface IChain {
 
 export const CHAINS: readonly IChain[] = [
   {
+    name: 'Ethereum',
+    srcChainId: 1,
+    kind: EChainKind.EVM,
+    evm: true,
+    indexer: { blockchain: 'ethereum', tokens: ['usdt'] },
+  },
+  {
     name: 'Ethereum Sepolia',
     srcChainId: 11155111,
     kind: EChainKind.EVM,
