@@ -8,7 +8,7 @@ import { EClaimStatus } from '@/claims/enums/claim-status.enum';
 import { ENTITLEMENT_TYPES, entitlementDomain } from '@/issuer/entitlement';
 import type { IssuerConfig } from '@/issuer/issuer-config';
 import { AttestationService } from '@/issuer/services/attestation.service';
-import { VerificationError } from '@/issuer/services/payment-verifier.service';
+import { VerificationError } from '@/common/chain/payment-verifier.service';
 import { createIssuerSigner, type WdkLoader } from '@/issuer/signer';
 
 const KEY =
@@ -56,6 +56,9 @@ function fakeWdk(): WdkLoader {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           signTypedData: (data: any) =>
             account.signTypedData({ ...data, primaryType: 'Entitlement' }),
+          signTransaction: async () => {
+            throw new Error('an issuer key never signs a transaction');
+          },
         };
       },
     },

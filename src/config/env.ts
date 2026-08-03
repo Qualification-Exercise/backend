@@ -100,6 +100,15 @@ const envSchema = z.object({
     .default('{}')
     .refine(isJsonObject, 'TOKEN_ADDRESSES must be a JSON object'),
 
+  RELAYER_ID: z.string().default('relayer'),
+  RELAYER_RPC_URL: z.string().default(''),
+  RELAYER_SIGNING_KEY: z.string().default(''),
+  RELAYER_POLL_INTERVAL_MS: z.coerce.number().int().default(15_000),
+  RELAYER_BATCH_SIZE: z.coerce.number().int().positive().default(10),
+  RELAYER_CONFIRMATIONS: z.coerce.number().int().positive().default(2),
+  RELAYER_DEADLINE_MARGIN_SECONDS: z.coerce.number().int().default(120),
+  RELAYER_MAX_FEE_GWEI: z.coerce.number().positive().default(100),
+
   UTILITY_TOKEN_CONTRACT_ADDRESS: z.string(),
   UTILITY_TOKEN_CONTRACT_ABI: z.string().default('[]'),
 

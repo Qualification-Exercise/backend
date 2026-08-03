@@ -14,7 +14,7 @@ import { CoinGeckoPriceProvider } from '@/issuer/price-providers/coingecko-price
 import {
   PaymentVerifierService,
   VerificationError,
-} from '@/issuer/services/payment-verifier.service';
+} from '@/common/chain/payment-verifier.service';
 import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
 import { PriceSnapshot } from '@/pricing/entities/price-snapshot.entity';

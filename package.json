@@ -23,6 +23,7 @@
     "dev:token": "ts-node -r tsconfig-paths/register scripts/dev-token.ts",
     "poll:once": "ts-node -r tsconfig-paths/register scripts/poll-once.ts",
     "issuer": "ts-node -r tsconfig-paths/register src/issuer/main.ts",
+    "relayer": "ts-node -r tsconfig-paths/register src/relayer/main.ts",
     "key:password": "ts-node -r tsconfig-paths/register scripts/encrypt-key.ts --password",
     "key:encrypt": "ts-node -r tsconfig-paths/register scripts/encrypt-key.ts",
     "verify:signer": "ts-node -r tsconfig-paths/register scripts/verify-signer.ts"
