@@ -4,7 +4,7 @@ import {
   InvalidAddressError,
   UnsupportedProofError,
   normalizeAddress,
-  ownershipMessage,
+  claimMessage,
   verifyOwnership,
 } from '@/wallets/address';
 
@@ -77,7 +77,7 @@ describe('normalizeAddress', () => {
 });
 
 describe('verifyOwnership', () => {
-  const message = ownershipMessage('0xdeadbeef');
+  const message = claimMessage('0xdeadbeef', 'AAAA-BBBB-CCCC-DDDD');
 
   it('accepts a signature from the address itself', async () => {
     const signature = await account.signMessage({ message });
@@ -109,7 +109,7 @@ describe('verifyOwnership', () => {
 
   it('rejects a valid signature over a different nonce', async () => {
     const signature = await account.signMessage({
-      message: ownershipMessage('0xfeedface'),
+      message: claimMessage('0xfeedface', 'AAAA-BBBB-CCCC-DDDD'),
     });
     await expect(
       verifyOwnership(account.address, message, signature),
@@ -136,8 +136,17 @@ describe('verifyOwnership', () => {
 
 describe('ownershipMessage', () => {
   it('binds the nonce and names the app, so a stray signature is not a proof', () => {
-    expect(ownershipMessage('0xabc')).toContain('WDK Cashback');
-    expect(ownershipMessage('0xabc')).toContain('Nonce: 0xabc');
-    expect(ownershipMessage('0xabc')).not.toBe(ownershipMessage('0xabd'));
+    expect(claimMessage('0xabc', 'AAAA-BBBB-CCCC-DDDD')).toContain(
+      'WDK Cashback',
+    );
+    expect(claimMessage('0xabc', 'AAAA-BBBB-CCCC-DDDD')).toContain(
+      'Nonce: 0xabc',
+    );
+    expect(claimMessage('0xabc', 'AAAA-BBBB-CCCC-DDDD')).toContain(
+      'Coupon: AAAA-BBBB-CCCC-DDDD',
+    );
+    expect(claimMessage('0xabc', 'AAAA-BBBB-CCCC-DDDD')).not.toBe(
+      claimMessage('0xabd', 'AAAA-BBBB-CCCC-DDDD'),
+    );
   });
 });

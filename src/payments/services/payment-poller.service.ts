@@ -8,13 +8,18 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThanOrEqual, Repository } from 'typeorm';
 
-import { chainBySrcChainId, indexerPath, paymentRef } from '@/chains';
-import type { Env } from '@/config/env';
 import {
-  IndexerService,
-  type ITransfer,
-  type ITransferQuery,
-} from '@/indexer/services/indexer.service';
+  chainBySrcChainId,
+  chainKindOf,
+  indexerPath,
+  paymentRef,
+} from '@/chains';
+import type { Env } from '@/config/env';
+import { IndexerService } from '@/indexer/services/indexer.service';
+import type {
+  ITransfer,
+  ITransferQuery,
+} from '@/indexer/interfaces/indexer.interface';
 import { ConfirmationPolicy } from '@/payments/confirmation-policy';
 import { IndexerCursor } from '@/payments/entities/indexer-cursor.entity';
 import { Merchant } from '@/payments/entities/merchant.entity';
@@ -211,8 +216,19 @@ export class PaymentPollerService implements OnModuleInit, OnModuleDestroy {
     const txHash = transfer.transactionHash;
     const now = new Date();
 
+    // Attribution follows the declared address; the *payout* is what a
+    // signature guards, on the claim screen. Someone who declares an address
+    // they cannot sign for therefore collects coupons they can never claim —
+    // and the first real signature takes the address back off them.
+    //
+    // Matched by chain *kind*, not by srcChainId: one EVM address is the same
+    // account on every EVM chain, so a user who linked while paying on mainnet
+    // is still the payer when the same key spends on Arbitrum.
     const payer = await this.wallets.findOne({
-      where: { address: canonical(transfer.from) },
+      where: {
+        chain: chainKindOf(srcChainId),
+        address: canonical(transfer.from),
+      },
     });
 
     try {

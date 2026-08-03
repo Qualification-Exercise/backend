@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Controller, Get } from '@nestjs/common';
 import { HealthService } from './services/health.service';
 

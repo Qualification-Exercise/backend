@@ -16,6 +16,8 @@ import {
   PriceUnavailableError,
   assetForToken,
 } from '@/pricing/price-source';
+import { BitfinexPricingClient } from '@tetherto/wdk-pricing-bitfinex-http';
+import { IGetLivePricingParams } from '../interfaces/pricing.interface';
 
 const PG_UNIQUE_VIOLATION = '23505';
 
@@ -33,6 +35,7 @@ export class PricingService implements OnModuleInit, OnModuleDestroy {
   private readonly batchSize: number;
   private timer?: NodeJS.Timeout;
   private running = false;
+  private client: BitfinexPricingClient;
 
   constructor(
     private readonly prices: PriceSource,
@@ -47,6 +50,7 @@ export class PricingService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+    this.client = new BitfinexPricingClient();
     if (this.intervalMs <= 0) {
       this.logger.log('Pricing disabled (PRICING_POLL_INTERVAL_MS <= 0)');
       return;
@@ -134,5 +138,30 @@ export class PricingService implements OnModuleInit, OnModuleDestroy {
         where: { paymentRef: payment.paymentRef },
       });
     }
+  }
+
+  async getLivePricing(params: IGetLivePricingParams) {
+    const { fromSources, to } = params;
+
+    const paramsToPricing = fromSources.map((source) => {
+      return {
+        from: source,
+        to: to || 'USD',
+      };
+    });
+
+    const prices = await this.client.getMultiCurrentPrices(paramsToPricing);
+
+    const mappedRes = fromSources.map((source, ind) => {
+      return {
+        from: source,
+        to: to || 'USD',
+        price: prices[ind] || null,
+      };
+    });
+
+    return {
+      data: mappedRes,
+    };
   }
 }
