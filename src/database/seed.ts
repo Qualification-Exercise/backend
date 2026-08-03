@@ -3,10 +3,11 @@ import { pino } from 'pino';
 import { User } from '@/users/entities/user.entity';
 import { SignerEntity } from '@/signers/entities/signer.entity';
 import { ESignerRole } from '@/signers/enums/signer-role.enum';
+import { TEST_USER_ID } from './test-user';
 
 const _logger = pino();
 
-export const TEST_USER_ID = '550e8400-e29b-41d4-a716-446655440000';
+export { TEST_USER_ID };
 
 /**
  * The Sepolia demo signer set, matching `contract/deployments/11155111.json`.
