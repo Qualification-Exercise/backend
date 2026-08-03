@@ -1,12 +1,10 @@
-import {
-  BadRequestException,
-  ConflictException,
-  NotImplementedException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { privateKeyToAccount } from 'viem/accounts';
+import type { FindOperator } from 'typeorm';
 
+import { EChainKind } from '@/chains/chain-kind.enum';
 import { ownershipMessage } from '@/wallets/address';
 import { Wallet } from '@/wallets/entities/wallet.entity';
 import { WalletChallenge } from '@/wallets/entities/wallet-challenge.entity';
@@ -14,6 +12,9 @@ import { WalletsService } from '@/wallets/services/wallets.service';
 
 const USER = 'user-1';
 const OTHER_USER = 'user-2';
+const SEPOLIA = 11155111;
+const BITCOIN = 4294967298;
+const BTC_ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2';
 
 const account = privateKeyToAccount(
   '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
@@ -61,22 +62,50 @@ function challengeRepo(
   };
 }
 
+type Where = {
+  userId?: string;
+  address?: string | FindOperator<string>;
+};
+
 function walletRepo(rows: Partial<Wallet>[] = []) {
-  const store = [...rows];
+  const store: Partial<Wallet>[] = rows.map((row) => ({
+    isPrimary: false,
+    verified: true,
+    createdAt: new Date(),
+    ...row,
+  }));
+
+  const select = ({ where = {} }: { where?: Where }) => {
+    if (where.userId) return store.filter((w) => w.userId === where.userId);
+    if (where.address && typeof where.address !== 'string') {
+      const wanted = where.address.value as unknown as string[];
+      return store.filter((w) => wanted.includes(w.address!));
+    }
+    return store;
+  };
+
+  const entityManager = {
+    find: jest.fn(async (_entity: unknown, opts: { where?: Where }) =>
+      select(opts),
+    ),
+    create: jest.fn((_entity: unknown, data: Partial<Wallet>) => ({ ...data })),
+    save: jest.fn(async (fresh: Partial<Wallet>[]) => {
+      store.push(...fresh.map((w) => ({ ...w, createdAt: new Date() })));
+      return fresh;
+    }),
+  };
+
+  const manager = {
+    ...entityManager,
+    transaction: jest.fn((cb: (em: unknown) => Promise<unknown>) =>
+      cb(entityManager),
+    ),
+  };
+
   return {
     _store: store,
-    find: jest.fn(async ({ where }: { where: { userId: string } }) =>
-      store.filter((w) => w.userId === where.userId),
-    ),
-    findOne: jest.fn(async ({ where }: { where: { address: string } }) =>
-      store.find((w) => w.address === where.address),
-    ),
-    insert: jest.fn(async (w: Partial<Wallet>) => {
-      if (store.some((existing) => existing.address === w.address)) {
-        throw Object.assign(new Error('duplicate key'), { code: '23505' });
-      }
-      store.push({ ...w, createdAt: new Date() });
-    }),
+    manager,
+    find: jest.fn(async (opts: { where?: Where }) => select(opts)),
   };
 }
 
@@ -94,7 +123,7 @@ async function build(
   return moduleRef.get(WalletsService);
 }
 
-describe('WalletsService.linkWallet', () => {
+describe('WalletsService.linkWallets', () => {
   const nonce = '0x' + '11'.repeat(32);
   const message = ownershipMessage(nonce);
   let signature: string;
@@ -105,50 +134,108 @@ describe('WalletsService.linkWallet', () => {
 
   const challenges = () => challengeRepo({ 'chl-1': { userId: USER, nonce } });
 
-  it('stores the mapping when the proof checks out', async () => {
-    const wallets = walletRepo();
-    const service = await build(wallets, challenges());
-
-    await expect(
-      service.linkWallet(USER, {
-        address: account.address.toLowerCase(),
-        challengeId: 'chl-1',
-        signature,
-      }),
-    ).resolves.toEqual({ address: account.address, linked: true });
-
-    // Stored checksummed, not as the client sent it.
-    expect(wallets._store[0]).toMatchObject({
-      userId: USER,
-      address: account.address,
-      chainFamily: 'EVM',
-    });
+  const evmEntry = (over: Record<string, unknown> = {}) => ({
+    chain: EChainKind.EVM,
+    srcChainId: SEPOLIA,
+    address: account.address.toLowerCase(),
+    path: "m/44'/60'/0'/0/0",
+    signature,
+    ...over,
   });
 
-  it('rejects a replay of a spent challenge', async () => {
+  it('registers the whole set in one call and checksums what it stores', async () => {
     const wallets = walletRepo();
     const service = await build(wallets, challenges());
-    const req = {
-      address: account.address,
+
+    const result = await service.linkWallets(USER, {
       challengeId: 'chl-1',
-      signature,
-    };
+      wallets: [evmEntry()],
+    });
 
-    await service.linkWallet(USER, req);
-    await expect(service.linkWallet(USER, req)).rejects.toThrow(
-      BadRequestException,
-    );
+    expect(result.wallets).toEqual([
+      expect.objectContaining({
+        chain: EChainKind.EVM,
+        address: account.address,
+        primary: true,
+        verified: true,
+      }),
+    ]);
   });
 
-  it("rejects another user's challenge id", async () => {
-    const service = await build(walletRepo(), challenges());
+  it('stores an address it cannot verify as unverified rather than refusing it', async () => {
+    const wallets = walletRepo();
+    const service = await build(wallets, challenges());
+
+    const result = await service.linkWallets(USER, {
+      challengeId: 'chl-1',
+      wallets: [
+        evmEntry(),
+        {
+          chain: EChainKind.BITCOIN,
+          srcChainId: BITCOIN,
+          address: BTC_ADDRESS,
+        },
+      ],
+    });
+
+    const btc = result.wallets.find((w) => w.chain === EChainKind.BITCOIN);
+    expect(btc).toMatchObject({ verified: false, primary: false });
+    // ...and it never becomes the payout recipient.
+    expect(result.wallets.filter((w) => w.primary)).toHaveLength(1);
+  });
+
+  it('refuses a set with no EVM address to be the payout recipient', async () => {
+    const wallets = walletRepo();
+    const service = await build(wallets, challenges());
+
     await expect(
-      service.linkWallet(OTHER_USER, {
-        address: account.address,
+      service.linkWallets(USER, {
         challengeId: 'chl-1',
-        signature,
+        wallets: [
+          {
+            chain: EChainKind.BITCOIN,
+            srcChainId: BITCOIN,
+            address: BTC_ADDRESS,
+          },
+        ],
       }),
     ).rejects.toThrow(BadRequestException);
+    expect(wallets._store).toHaveLength(0);
+  });
+
+  it('refuses an entry whose chain does not match its srcChainId', async () => {
+    const service = await build(walletRepo(), challenges());
+
+    await expect(
+      service.linkWallets(USER, {
+        challengeId: 'chl-1',
+        wallets: [evmEntry({ chain: EChainKind.TRON })],
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('refuses two addresses for the same chain', async () => {
+    const service = await build(walletRepo(), challenges());
+
+    await expect(
+      service.linkWallets(USER, {
+        challengeId: 'chl-1',
+        wallets: [evmEntry(), evmEntry({ address: attacker.address })],
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('requires a signature on a chain that can produce one', async () => {
+    const wallets = walletRepo();
+    const service = await build(wallets, challenges());
+
+    await expect(
+      service.linkWallets(USER, {
+        challengeId: 'chl-1',
+        wallets: [evmEntry({ signature: undefined })],
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(wallets._store).toHaveLength(0);
   });
 
   it('rejects a foreign signature and burns the challenge anyway', async () => {
@@ -157,65 +244,94 @@ describe('WalletsService.linkWallet', () => {
     const foreign = await attacker.signMessage({ message });
 
     await expect(
-      service.linkWallet(USER, {
-        address: account.address,
+      service.linkWallets(USER, {
         challengeId: 'chl-1',
-        signature: foreign,
+        wallets: [evmEntry({ signature: foreign })],
       }),
     ).rejects.toThrow(BadRequestException);
     expect(wallets._store).toHaveLength(0);
 
     // Same nonce is not available for a second attempt.
     await expect(
-      service.linkWallet(USER, {
-        address: account.address,
+      service.linkWallets(USER, {
         challengeId: 'chl-1',
-        signature,
+        wallets: [evmEntry()],
       }),
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('rejects a malformed address before spending the challenge', async () => {
+  it('rejects a replay of a spent challenge', async () => {
     const service = await build(walletRepo(), challenges());
+    const req = { challengeId: 'chl-1', wallets: [evmEntry()] };
+
+    await service.linkWallets(USER, req);
+    await expect(service.linkWallets(USER, req)).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it("rejects another user's challenge id", async () => {
+    const service = await build(walletRepo(), challenges());
+
     await expect(
-      service.linkWallet(USER, {
-        address: 'nonsense',
+      service.linkWallets(OTHER_USER, {
         challengeId: 'chl-1',
-        signature,
+        wallets: [evmEntry()],
       }),
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('refuses an unproven Bitcoin address instead of storing it', async () => {
-    const wallets = walletRepo();
+  it('is a no-op when the same user re-posts the set they already own', async () => {
+    const wallets = walletRepo([
+      {
+        userId: USER,
+        chain: EChainKind.EVM,
+        srcChainId: SEPOLIA,
+        address: account.address,
+        isPrimary: true,
+      },
+    ]);
     const service = await build(wallets, challenges());
-    await expect(
-      service.linkWallet(USER, {
-        address: '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2',
-        challengeId: 'chl-1',
-        signature,
-      }),
-    ).rejects.toThrow(NotImplementedException);
-    expect(wallets._store).toHaveLength(0);
+
+    const result = await service.linkWallets(USER, {
+      challengeId: 'chl-1',
+      wallets: [evmEntry()],
+    });
+
+    expect(result.wallets).toHaveLength(1);
+    expect(wallets._store).toHaveLength(1);
   });
 
-  it('is a no-op when the same user re-links the address they already own', async () => {
-    const wallets = walletRepo([{ userId: USER, address: account.address }]);
+  it('409s on a different address for a chain the user already registered', async () => {
+    const wallets = walletRepo([
+      {
+        userId: USER,
+        chain: EChainKind.EVM,
+        srcChainId: SEPOLIA,
+        address: attacker.address,
+        isPrimary: true,
+      },
+    ]);
     const service = await build(wallets, challenges());
 
     await expect(
-      service.linkWallet(USER, {
-        address: account.address,
+      service.linkWallets(USER, {
         challengeId: 'chl-1',
-        signature,
+        wallets: [evmEntry()],
       }),
-    ).resolves.toEqual({ address: account.address, linked: true });
+    ).rejects.toThrow(ConflictException);
     expect(wallets._store).toHaveLength(1);
   });
 
   it('logs a security event and 409s when the address belongs to someone else', async () => {
     const wallets = walletRepo([
-      { userId: OTHER_USER, address: account.address },
+      {
+        userId: OTHER_USER,
+        chain: EChainKind.EVM,
+        srcChainId: SEPOLIA,
+        address: account.address,
+        isPrimary: true,
+      },
     ]);
     const service = await build(wallets, challenges());
     const logged: string[] = [];
@@ -224,10 +340,9 @@ describe('WalletsService.linkWallet', () => {
       .mockImplementation((msg) => logged.push(String(msg)));
 
     await expect(
-      service.linkWallet(USER, {
-        address: account.address,
+      service.linkWallets(USER, {
         challengeId: 'chl-1',
-        signature,
+        wallets: [evmEntry()],
       }),
     ).rejects.toThrow(ConflictException);
 
@@ -243,15 +358,17 @@ describe('WalletsService.listWallets', () => {
     const wallets = walletRepo([
       {
         userId: USER,
+        chain: EChainKind.EVM,
+        srcChainId: SEPOLIA,
         address: account.address,
-        chainFamily: 'EVM',
-        createdAt: new Date(),
+        isPrimary: true,
       },
       {
         userId: OTHER_USER,
+        chain: EChainKind.EVM,
+        srcChainId: SEPOLIA,
         address: attacker.address,
-        chainFamily: 'EVM',
-        createdAt: new Date(),
+        isPrimary: true,
       },
     ]);
     const service = await build(wallets, challengeRepo({}));

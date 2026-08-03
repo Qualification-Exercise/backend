@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Env } from '@/config/env';
+import { migrations } from './migrations';
 
 @Module({
   imports: [
@@ -17,7 +18,11 @@ import { Env } from '@/config/env';
         autoLoadEntities: true,
         synchronize: false,
         logging: configService.get('NODE_ENV') === 'development',
+        migrations,
         migrationsTransactionMode: 'all',
+        // ponytail: single-instance assumption — two replicas booting together
+        // race on the migrations table. Move to a release-phase step if we scale out.
+        migrationsRun: true,
       }),
     }),
   ],

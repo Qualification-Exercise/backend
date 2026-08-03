@@ -20,10 +20,6 @@ export class UsersService {
     return this.users.findOne({ where: { externalAuthId } });
   }
 
-  findByEmail(email: string): Promise<User | null> {
-    return this.users.findOne({ where: { email } });
-  }
-
   async create(
     data: Pick<User, 'externalAuthId' | 'email' | 'firstName' | 'lastName'>,
   ): Promise<User> {
@@ -32,19 +28,10 @@ export class UsersService {
     } catch (err) {
       if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
       const existing = await this.users.findOne({
-        where: [{ email: data.email }, { externalAuthId: data.externalAuthId }],
+        where: { externalAuthId: data.externalAuthId },
       });
       if (existing) return existing;
       throw err;
     }
-  }
-
-  async updateExternalAuthId(
-    id: string,
-    externalAuthId: string,
-  ): Promise<User> {
-    await this.users.update({ id }, { externalAuthId });
-    const updated = await this.users.findOne({ where: { id } });
-    return updated!;
   }
 }

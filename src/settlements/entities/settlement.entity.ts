@@ -18,7 +18,7 @@ export class SettlementEntity {
   @Column({ name: 'recipient', type: 'varchar' })
   recipient: string;
 
-  @Column({ name: 'amount', type: 'decimal', precision: 40, scale: 0 })
+  @Column({ name: 'amount', type: 'numeric', precision: 78, scale: 0 })
   amount: string;
 
   @Column({ name: 'tx_hash', type: 'varchar' })
