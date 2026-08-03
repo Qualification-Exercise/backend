@@ -51,41 +51,63 @@ const envSchema = z.object({
   INDEXER_BASE_URL: z.string().url(),
   INDEXER_API_KEY: z.string(),
 
-  /** 0 or less disables the payment poller — useful for tests and the API-only role. */
   PAYMENT_POLL_INTERVAL_MS: z.coerce.number().int().default(30_000),
-  /** How far past the cursor each poll reaches; the API has no offset parameter. */
   PAYMENT_POLL_PAGE_SIZE: z.coerce.number().int().positive().default(50),
   PAYMENT_POLL_MAX_MERCHANTS: z.coerce.number().int().positive().default(20),
 
-  /**
-   * Administrative UTL rate in USD. UTL has no market, so this is a decision, not
-   * a price — configuration, never a literal in the accrual code. Exposed via
-   * GET /config so a client can explain the number it shows.
-   */
   UTL_USD_RATE: z.string().default('1'),
-  /** Cashback rate in basis points; 500 = 5 %. */
   CASHBACK_BPS: z.coerce.number().int().nonnegative().default(500),
 
-  /** 0 or less disables the accrual loop. */
   ACCRUAL_POLL_INTERVAL_MS: z.coerce.number().int().default(30_000),
   ACCRUAL_BATCH_SIZE: z.coerce.number().int().positive().default(50),
 
-  /** 0 or less disables the pricing loop. */
   PRICING_POLL_INTERVAL_MS: z.coerce.number().int().default(30_000),
   PRICING_BATCH_SIZE: z.coerce.number().int().positive().default(25),
 
-  /** Blocks of depth before a payment counts as money, keyed by srcChainId. */
   CONFIRMATION_DEPTHS: z
     .string()
     .default(
       '{"11155111":12,"421614":5,"80002":20,"4294967297":20,"4294967298":3,"4294967299":3}',
     )
     .refine(isJsonObject, 'CONFIRMATION_DEPTHS must be a JSON object'),
-  /** Chain head source per srcChainId. A chain with no RPC never confirms. */
   RPC_URLS: z
     .string()
     .default('{}')
     .refine(isJsonObject, 'RPC_URLS must be a JSON object'),
+
+  REWARD_CHAIN_ID: z.coerce.number().int().positive().default(11155111),
+  ATTESTATION_THRESHOLD: z.coerce.number().int().positive().default(1),
+  CLAIM_COOLDOWN_HOURS: z.coerce.number().nonnegative().default(24),
+  CLAIM_DEADLINE_SECONDS: z.coerce.number().int().positive().default(3600),
+  CLAIM_SWEEP_INTERVAL_MS: z.coerce.number().int().default(60_000),
+
+  ISSUER_ID: z.string().default(''),
+  SIGNER_KEY_PASSWORD: z.string().default(''),
+  ISSUER_RPC_URL: z.string().default(''),
+  ISSUER_SIGNING_KEY: z.string().default(''),
+  ISSUER_PRICE_PROVIDER: z.enum(['bitfinex', 'coingecko']).default('bitfinex'),
+  ISSUER_POLL_INTERVAL_MS: z.coerce.number().int().default(15_000),
+  ISSUER_BATCH_SIZE: z.coerce.number().int().positive().default(25),
+  PRICE_TOLERANCE_BPS: z.coerce.number().int().nonnegative().default(100),
+  PRICE_WINDOW_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(6 * 3600),
+  COUPON_CLAIM_CONTRACT_ADDRESS: z.string().default(''),
+  TOKEN_ADDRESSES: z
+    .string()
+    .default('{}')
+    .refine(isJsonObject, 'TOKEN_ADDRESSES must be a JSON object'),
+
+  RELAYER_ID: z.string().default('relayer'),
+  RELAYER_RPC_URL: z.string().default(''),
+  RELAYER_SIGNING_KEY: z.string().default(''),
+  RELAYER_POLL_INTERVAL_MS: z.coerce.number().int().default(15_000),
+  RELAYER_BATCH_SIZE: z.coerce.number().int().positive().default(10),
+  RELAYER_CONFIRMATIONS: z.coerce.number().int().positive().default(2),
+  RELAYER_DEADLINE_MARGIN_SECONDS: z.coerce.number().int().default(120),
+  RELAYER_MAX_FEE_GWEI: z.coerce.number().positive().default(100),
 
   UTILITY_TOKEN_CONTRACT_ADDRESS: z.string(),
   UTILITY_TOKEN_CONTRACT_ABI: z.string().default('[]'),

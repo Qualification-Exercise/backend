@@ -1,0 +1,474 @@
+import { timingSafeEqual } from 'node:crypto';
+
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, type EntityManager } from 'typeorm';
+
+import { EChainKind } from '@/chains/chain-kind.enum';
+import { AttestationEntity } from '@/attestations/entities/attestation.entity';
+import { ClaimEntity } from '@/claims/entities/claim.entity';
+import type { CreateClaimDTO } from '@/claims/dtos/create-claim.dto';
+import {
+  EClaimFailureReason,
+  EClaimStatus,
+} from '@/claims/enums/claim-status.enum';
+import { apiError } from '@/common/api-error';
+import { EErrorCodes } from '@/common/enums/error-codes.enum';
+import type { Env } from '@/config/env';
+import { Coupon } from '@/coupons/entities/coupon.entity';
+import { ECouponStatus } from '@/coupons/enums/coupon-status.enum';
+import {
+  IdempotencyService,
+  hashRequest,
+} from '@/idempotency/services/idempotency.service';
+import { ConfirmationPolicy } from '@/payments/confirmation-policy';
+import { SettlementEntity } from '@/settlements/entities/settlement.entity';
+
+const PG_UNIQUE_VIOLATION = '23505';
+
+export interface IClaimCreatedResponse {
+  claimId: string;
+  couponId: string;
+  status: EClaimStatus;
+  paymentRef: string;
+  amount: string;
+}
+
+export interface IClaimResponse {
+  claimId: string;
+  couponId: string;
+  status: EClaimStatus;
+  chainId: number;
+  txHash: string | null;
+  paymentRef: string;
+  amount: string;
+  attestations: { have: number; need: number };
+  confirmations: number | null;
+  failureReason: EClaimFailureReason | null;
+  failureDetail: string | null;
+  updatedAt: string;
+}
+
+interface ICouponRow {
+  id: string;
+  paymentRef: string;
+  amount: string;
+  userId: string;
+}
+
+function constantTimeEquals(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) {
+    timingSafeEqual(left, left);
+    return false;
+  }
+  return timingSafeEqual(left, right);
+}
+
+function normalizeCode(code: string): string {
+  return code
+    .trim()
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, '');
+}
+
+@Injectable()
+export class ClaimsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ClaimsService.name);
+  private readonly chainId: number;
+  private readonly threshold: number;
+  private readonly cooldownHours: number;
+  private readonly deadlineSeconds: number;
+  private readonly sweepIntervalMs: number;
+  private timer?: NodeJS.Timeout;
+
+  constructor(
+    @InjectRepository(ClaimEntity)
+    private readonly claims: Repository<ClaimEntity>,
+    @InjectRepository(AttestationEntity)
+    private readonly attestations: Repository<AttestationEntity>,
+    @InjectRepository(SettlementEntity)
+    private readonly settlements: Repository<SettlementEntity>,
+    private readonly idempotency: IdempotencyService,
+    private readonly confirmations: ConfirmationPolicy,
+    configService: ConfigService<Env, true>,
+  ) {
+    this.chainId = configService.get('REWARD_CHAIN_ID');
+    this.threshold = configService.get('ATTESTATION_THRESHOLD');
+    this.cooldownHours = configService.get('CLAIM_COOLDOWN_HOURS');
+    this.deadlineSeconds = configService.get('CLAIM_DEADLINE_SECONDS');
+    this.sweepIntervalMs = configService.get('CLAIM_SWEEP_INTERVAL_MS');
+  }
+
+  onModuleInit() {
+    if (this.sweepIntervalMs <= 0) {
+      this.logger.log('Claim deadline sweep disabled');
+      return;
+    }
+    this.timer = setInterval(() => {
+      void this.sweepOverdue();
+    }, this.sweepIntervalMs);
+    this.timer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  async create(
+    userId: string,
+    dto: CreateClaimDTO,
+    idempotencyKey: string | undefined,
+  ): Promise<IClaimCreatedResponse> {
+    if (!idempotencyKey?.trim()) {
+      throw new BadRequestException(
+        apiError(
+          EErrorCodes.IDEMPOTENCY_KEY_REQUIRED,
+          'POST /claims requires an Idempotency-Key header',
+        ),
+      );
+    }
+    if (!dto.couponId === !dto.code) {
+      throw new BadRequestException(
+        apiError(
+          EErrorCodes.INVALID_REQUEST,
+          'Send exactly one of couponId or code',
+        ),
+      );
+    }
+
+    return this.idempotency.run(
+      userId,
+      idempotencyKey.trim(),
+      hashRequest({ couponId: dto.couponId ?? null, code: dto.code ?? null }),
+      (em) => this.claimOne(em, userId, dto),
+    );
+  }
+
+  private async claimOne(
+    em: EntityManager,
+    userId: string,
+    dto: CreateClaimDTO,
+  ): Promise<IClaimCreatedResponse> {
+    await em.query('SELECT pg_advisory_xact_lock(hashtext($1))', [userId]);
+
+    await this.assertNotInCooldown(em, userId);
+    const coupon = await this.resolveCoupon(em, userId, dto);
+    const recipient = await this.resolveRecipient(em, userId);
+
+    const moved: unknown[] = await em.query(
+      `UPDATE coupons SET status = $1, "updatedAt" = now()
+        WHERE id = $2 AND "userId" = $3 AND status = $4
+          AND ("expiresAt" IS NULL OR "expiresAt" > now())
+        RETURNING id`,
+      [
+        ECouponStatus.PENDING_ATTESTATION,
+        coupon.id,
+        userId,
+        ECouponStatus.ISSUED,
+      ],
+    );
+    if (moved.length === 0) throw this.notClaimable();
+
+    const claim = em.create(ClaimEntity, {
+      couponId: coupon.id,
+      recipient,
+      amount: coupon.amount,
+      deadline: Math.floor(Date.now() / 1000) + this.deadlineSeconds,
+      chainId: this.chainId,
+      status: EClaimStatus.PENDING_ATTESTATION,
+    });
+
+    try {
+      await em.save(claim);
+    } catch (err) {
+      if ((err as { code?: string }).code === PG_UNIQUE_VIOLATION) {
+        throw this.notClaimable();
+      }
+      throw err;
+    }
+
+    this.logger.log(
+      `Claim ${claim.id} created for coupon ${coupon.id} amount=${coupon.amount}`,
+    );
+
+    return {
+      claimId: claim.id,
+      couponId: coupon.id,
+      status: EClaimStatus.PENDING_ATTESTATION,
+      paymentRef: coupon.paymentRef,
+      amount: coupon.amount,
+    };
+  }
+
+  private async assertNotInCooldown(
+    em: EntityManager,
+    userId: string,
+  ): Promise<void> {
+    if (this.cooldownHours <= 0) return;
+
+    const [row] = (await em.query(
+      `SELECT c.created_at AS at
+         FROM claims c
+         JOIN coupons cp ON cp.id = c.coupon_id
+        WHERE cp."userId" = $1 AND c.status <> $2
+        ORDER BY c.created_at DESC
+        LIMIT 1`,
+      [userId, EClaimStatus.FAILED],
+    )) as { at: Date }[];
+    if (!row) return;
+
+    const nextAt = new Date(
+      new Date(row.at).getTime() + this.cooldownHours * 3_600_000,
+    );
+    if (nextAt.getTime() <= Date.now()) return;
+
+    throw new HttpException(
+      apiError(
+        EErrorCodes.CLAIM_COOLDOWN,
+        `One claim per ${this.cooldownHours} h`,
+        { nextClaimAt: nextAt.toISOString() },
+      ),
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+
+  private async resolveCoupon(
+    em: EntityManager,
+    userId: string,
+    dto: CreateClaimDTO,
+  ): Promise<ICouponRow> {
+    if (dto.couponId) {
+      const coupon = await em.findOne(Coupon, {
+        where: { id: dto.couponId, userId },
+      });
+      if (!coupon) throw this.couponNotFound();
+      return coupon;
+    }
+
+    const coupon = await em.findOne(Coupon, {
+      where: { code: normalizedForLookup(dto.code!) },
+    });
+    if (!coupon || !constantTimeEquals(coupon.userId, userId)) {
+      throw this.couponNotFound();
+    }
+    return coupon;
+  }
+
+  private async resolveRecipient(
+    em: EntityManager,
+    userId: string,
+  ): Promise<string> {
+    const [row] = (await em.query(
+      `SELECT address FROM wallets
+        WHERE "userId" = $1 AND chain = $2 AND verified AND "isPrimary"
+        LIMIT 1`,
+      [userId, EChainKind.EVM],
+    )) as { address: string }[];
+
+    if (!row) {
+      throw new NotFoundException(
+        apiError(
+          EErrorCodes.WALLET_NOT_LINKED,
+          'Link and verify an EVM wallet before claiming',
+        ),
+      );
+    }
+    return row.address;
+  }
+
+  async findById(userId: string, claimId: string): Promise<IClaimResponse> {
+    const claim = await this.claims
+      .createQueryBuilder('claim')
+      .innerJoinAndSelect('claim.coupon', 'coupon')
+      .where('claim.id = :claimId', { claimId })
+      .andWhere('coupon."userId" = :userId', { userId })
+      .getOne();
+
+    if (!claim) {
+      throw new NotFoundException(
+        apiError(EErrorCodes.CLAIM_NOT_FOUND, 'Unknown claim'),
+      );
+    }
+
+    const [have, settlement] = await Promise.all([
+      this.attestations.count({ where: { claimId: claim.id } }),
+      this.settlements.findOne({
+        where: { paymentRef: claim.coupon.paymentRef },
+      }),
+    ]);
+
+    return {
+      claimId: claim.id,
+      couponId: claim.couponId,
+      status: claim.status,
+      chainId: Number(claim.chainId),
+      txHash: claim.txHash,
+      paymentRef: claim.coupon.paymentRef,
+      amount: claim.amount,
+      attestations: { have, need: this.threshold },
+      confirmations: settlement
+        ? await this.confirmations.confirmations(
+            Number(claim.chainId),
+            Number(settlement.blockNumber),
+          )
+        : null,
+      failureReason: claim.failureReason,
+      failureDetail: claim.failureDetail,
+      updatedAt: claim.updatedAt.toISOString(),
+    };
+  }
+
+  async markAttested(claimId: string): Promise<void> {
+    const have = await this.attestations.count({ where: { claimId } });
+    if (have < this.threshold) return;
+    await this.advance(
+      claimId,
+      [EClaimStatus.PENDING_ATTESTATION],
+      EClaimStatus.ATTESTED,
+      ECouponStatus.ATTESTED,
+    );
+  }
+
+  async markSubmitted(
+    claimId: string,
+    txHash: string,
+    txNonce?: number,
+  ): Promise<void> {
+    await this.advance(
+      claimId,
+      [EClaimStatus.ATTESTED],
+      EClaimStatus.CLAIM_SUBMITTED,
+      ECouponStatus.CLAIM_SUBMITTED,
+      { txHash, txNonce: txNonce ?? null },
+    );
+  }
+
+  async markClaimed(claimId: string): Promise<void> {
+    await this.advance(
+      claimId,
+      [EClaimStatus.CLAIM_SUBMITTED],
+      EClaimStatus.CLAIMED,
+      ECouponStatus.CLAIMED,
+    );
+  }
+
+  async fail(
+    claimId: string,
+    reason: EClaimFailureReason,
+    detail?: string,
+  ): Promise<void> {
+    const moved = await this.advance(
+      claimId,
+      [
+        EClaimStatus.PENDING_ATTESTATION,
+        EClaimStatus.ATTESTED,
+        EClaimStatus.CLAIM_SUBMITTED,
+      ],
+      EClaimStatus.FAILED,
+      ECouponStatus.ISSUED,
+      { failureReason: reason, failureDetail: detail ?? null },
+    );
+    if (!moved) return;
+
+    this.logger.error(
+      `security_event=claim.failed claimId=${claimId} reason=${reason}` +
+        (detail ? ` detail=${detail}` : ''),
+    );
+  }
+
+  async expire(claimId: string): Promise<void> {
+    await this.advance(
+      claimId,
+      [EClaimStatus.ATTESTED],
+      EClaimStatus.EXPIRED,
+      ECouponStatus.ISSUED,
+    );
+  }
+
+  async sweepOverdue(): Promise<void> {
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const overdue = await this.claims
+        .createQueryBuilder('claim')
+        .select('claim.id', 'id')
+        .addSelect('claim.status', 'status')
+        .where('claim.status IN (:...open)', {
+          open: [EClaimStatus.PENDING_ATTESTATION, EClaimStatus.ATTESTED],
+        })
+        .andWhere('claim.deadline < :now', { now })
+        .limit(100)
+        .getRawMany<{ id: string; status: EClaimStatus }>();
+
+      for (const claim of overdue) {
+        if (claim.status === EClaimStatus.PENDING_ATTESTATION) {
+          await this.fail(claim.id, EClaimFailureReason.ATTESTATION_REJECTED);
+        } else {
+          await this.expire(claim.id);
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Claim sweep failed: ${String(err)}`);
+    }
+  }
+
+  private async advance(
+    claimId: string,
+    from: EClaimStatus[],
+    to: EClaimStatus,
+    couponTo: ECouponStatus,
+    extra: Partial<ClaimEntity> = {},
+  ): Promise<boolean> {
+    return this.claims.manager.transaction(async (em) => {
+      const result = await em
+        .createQueryBuilder()
+        .update(ClaimEntity)
+        .set({ status: to, ...extra })
+        .where('id = :claimId', { claimId })
+        .andWhere('status IN (:...from)', { from })
+        .returning('coupon_id')
+        .execute();
+
+      const couponId = result.raw?.[0]?.coupon_id as string | undefined;
+      if (!couponId) return false;
+
+      await em.query(
+        `UPDATE coupons SET status = $1, "updatedAt" = now() WHERE id = $2`,
+        [couponTo, couponId],
+      );
+      return true;
+    });
+  }
+
+  private couponNotFound(): NotFoundException {
+    return new NotFoundException(
+      apiError(EErrorCodes.COUPON_NOT_FOUND, 'Unknown coupon or code'),
+    );
+  }
+
+  private notClaimable(): ConflictException {
+    return new ConflictException(
+      apiError(
+        EErrorCodes.COUPON_NOT_CLAIMABLE,
+        'Coupon is expired, already claimed, or not in a claimable state',
+      ),
+    );
+  }
+}
+
+function normalizedForLookup(code: string): string {
+  const bare = normalizeCode(code);
+  return bare.match(/.{1,4}/g)?.join('-') ?? bare;
+}
