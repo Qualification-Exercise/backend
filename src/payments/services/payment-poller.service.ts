@@ -10,11 +10,11 @@ import { In, LessThanOrEqual, Repository } from 'typeorm';
 
 import { chainBySrcChainId, indexerPath, paymentRef } from '@/chains';
 import type { Env } from '@/config/env';
-import {
-  IndexerService,
-  type ITransfer,
-  type ITransferQuery,
-} from '@/indexer/services/indexer.service';
+import { IndexerService } from '@/indexer/services/indexer.service';
+import type {
+  ITransfer,
+  ITransferQuery,
+} from '@/indexer/interfaces/indexer.interface';
 import { ConfirmationPolicy } from '@/payments/confirmation-policy';
 import { IndexerCursor } from '@/payments/entities/indexer-cursor.entity';
 import { Merchant } from '@/payments/entities/merchant.entity';
