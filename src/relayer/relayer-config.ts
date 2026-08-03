@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Hex } from 'viem';
 
 import type { IChainViewConfig } from '@/common/chain/chain-view.config';
+import { assertDistinct, buildEndpoints } from '@/common/chain/rpc-endpoints';
 import { createWdkSigner, type IWdkSigner } from '@/common/signing/wdk-signer';
 import type { Env } from '@/config/env';
 
@@ -19,7 +20,8 @@ export class RelayerConfigError extends Error {}
 @Injectable()
 export class RelayerConfig implements IChainViewConfig {
   readonly id: string;
-  readonly rpcUrl: string;
+  readonly endpoints: Record<string, string>;
+  readonly rewardRpcUrl: string;
   readonly signer: IWdkSigner;
   readonly chainId: number;
   readonly verifyingContract: Hex;
@@ -32,7 +34,11 @@ export class RelayerConfig implements IChainViewConfig {
 
   constructor(configService: ConfigService<Env, true>) {
     this.id = configService.get('RELAYER_ID');
-    this.rpcUrl = configService.get('RELAYER_RPC_URL');
+    this.endpoints = buildEndpoints(
+      configService.get('REWARD_CHAIN_ID'),
+      configService.get('RELAYER_RPC_URL'),
+      configService.get('RELAYER_RPC_URLS'),
+    );
     this.chainId = configService.get('REWARD_CHAIN_ID');
     this.pollIntervalMs = configService.get('RELAYER_POLL_INTERVAL_MS');
     this.batchSize = configService.get('RELAYER_BATCH_SIZE');
@@ -53,23 +59,33 @@ export class RelayerConfig implements IChainViewConfig {
     }
     this.verifyingContract = contract as Hex;
 
-    if (!this.rpcUrl) {
+    const reward = this.endpoints[String(this.chainId)];
+    if (!reward) {
       throw new RelayerConfigError(
-        'RELAYER_RPC_URL must be set: the relayer re-verifies against its own node',
+        'RELAYER_RPC_URL must name a node on the reward chain: that is where claim() goes',
       );
     }
+    this.rewardRpcUrl = reward;
+
     const shared: Record<string, string> = JSON.parse(
       configService.get('RPC_URLS'),
     );
-    const issuerRpc = configService.get('ISSUER_RPC_URL');
-    const collisions = [...Object.values(shared), issuerRpc].filter((url) =>
-      sameEndpoint(url, this.rpcUrl),
+    const issuerEndpoints = Object.values(
+      JSON.parse(configService.get('ISSUER_RPC_URLS')) as Record<
+        string,
+        string
+      >,
     );
-    if (collisions.length > 0) {
-      throw new RelayerConfigError(
-        'RELAYER_RPC_URL must differ from the API and issuer endpoints',
-      );
-    }
+    assertDistinct(
+      this.endpoints,
+      [
+        ...Object.values(shared),
+        ...issuerEndpoints,
+        configService.get('ISSUER_RPC_URL'),
+      ],
+      'Relayer',
+      JSON.parse(configService.get('RPC_SHARING_ALLOWED_CHAINS')) as number[],
+    );
 
     this.signer = createWdkSigner(
       configService.get('RELAYER_SIGNING_KEY') || '',
@@ -80,12 +96,11 @@ export class RelayerConfig implements IChainViewConfig {
     );
   }
 
+  rpcUrlFor(srcChainId: number): string | null {
+    return this.endpoints[String(srcChainId)] ?? null;
+  }
+
   tokenAddress(srcChainId: number, token: string): string | null {
     return this.tokens[String(srcChainId)]?.[token.toLowerCase()] ?? null;
   }
-}
-
-function sameEndpoint(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  return a.trim().replace(/\/+$/, '') === b.trim().replace(/\/+$/, '');
 }

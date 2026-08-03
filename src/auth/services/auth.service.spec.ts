@@ -268,6 +268,7 @@ describe('AuthService', () => {
 
       const signSpy = jest.spyOn(jwtService, 'sign').mockReturnValue('token');
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (service as any).buildAuthResponse(user);
 
       expect(signSpy).toHaveBeenCalledTimes(2);

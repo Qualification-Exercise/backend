@@ -91,7 +91,8 @@ describeVectors('paymentRef', () => {
   });
 
   it('rejects unknown chain ids and malformed input', () => {
-    expect(() => paymentRef(1, fixture.vectors[0].txHash, 0)).toThrow(
+    // 1 is Ethereum mainnet now — payments are detected there. 999 is nothing.
+    expect(() => paymentRef(999, fixture.vectors[0].txHash, 0)).toThrow(
       /Unknown srcChainId/,
     );
     expect(() => paymentRef(11155111, '0xdeadbeef', 0)).toThrow(

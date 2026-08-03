@@ -8,12 +8,21 @@ import {
   type PublicClient,
 } from 'viem';
 
-import { chainBySrcChainId, normalizeTxHash, paymentRef } from '@/chains';
+import {
+  chainBySrcChainId,
+  chainKindOf,
+  normalizeTxHash,
+  paymentRef,
+} from '@/chains';
+import { EChainKind } from '@/chains/chain-kind.enum';
 import { decimalsFor, toScaled } from '@/coupons/accrual';
 import {
   CHAIN_VIEW_CONFIG,
   type IChainViewConfig,
 } from '@/common/chain/chain-view.config';
+import { VerificationError } from '@/common/chain/verification-error';
+import { BitcoinPaymentVerifier } from '@/common/chain/verifiers/bitcoin.verifier';
+import { TronPaymentVerifier } from '@/common/chain/verifiers/tron.verifier';
 import { ConfirmationPolicy } from '@/payments/confirmation-policy';
 import type { Payment } from '@/payments/entities/payment.entity';
 import { assetForToken } from '@/pricing/price-source';
@@ -23,7 +32,7 @@ const TRANSFER_ABI = parseAbi([
   'event Transfer(address indexed from, address indexed to, uint256 value)',
 ]);
 
-export class VerificationError extends Error {}
+export { VerificationError };
 
 function canonical(address: string): string {
   try {
@@ -45,23 +54,18 @@ function canonical(address: string): string {
 @Injectable()
 export class PaymentVerifierService {
   private readonly logger = new Logger(PaymentVerifierService.name);
-  private client?: PublicClient;
+  private readonly clients = new Map<number, PublicClient>();
 
   constructor(
     @Inject(CHAIN_VIEW_CONFIG)
     private readonly config: IChainViewConfig,
     private readonly confirmations: ConfirmationPolicy,
+    private readonly tron: TronPaymentVerifier,
+    private readonly bitcoin: BitcoinPaymentVerifier,
   ) {}
 
   async verify(payment: Payment, merchantAddresses: string[]): Promise<void> {
     const srcChainId = Number(payment.srcChainId);
-    const chain = chainBySrcChainId(srcChainId);
-
-    if (!chain.evm) {
-      throw new VerificationError(
-        `NON_EVM_UNVERIFIABLE: no ${chain.name} node configured for this issuer`,
-      );
-    }
 
     const derived = paymentRef(srcChainId, payment.txHash, payment.outputIndex);
     if (derived.toLowerCase() !== payment.paymentRef.toLowerCase()) {
@@ -70,7 +74,41 @@ export class PaymentVerifierService {
       );
     }
 
-    const receipt = await this.receipt(payment.txHash);
+    const endpoint = this.config.rpcUrlFor(srcChainId);
+    if (!endpoint) {
+      throw new VerificationError(
+        `NO_NODE: ${this.config.id} has no endpoint for chain ${srcChainId}`,
+      );
+    }
+    const depth = this.confirmations.depthFor(srcChainId);
+
+    switch (chainKindOf(srcChainId)) {
+      case EChainKind.EVM:
+        return this.verifyEvm(payment, merchantAddresses);
+      case EChainKind.TRON:
+        return this.tron.verify(
+          payment,
+          merchantAddresses,
+          endpoint,
+          depth,
+          this.config.tokenAddress(srcChainId, payment.token),
+        );
+      case EChainKind.BITCOIN:
+        return this.bitcoin.verify(payment, merchantAddresses, endpoint, depth);
+      default:
+        throw new VerificationError(
+          `UNVERIFIABLE_CHAIN: ${chainBySrcChainId(srcChainId).name} cannot be re-verified by this process`,
+        );
+    }
+  }
+
+  private async verifyEvm(
+    payment: Payment,
+    merchantAddresses: string[],
+  ): Promise<void> {
+    const srcChainId = Number(payment.srcChainId);
+
+    const receipt = await this.receipt(srcChainId, payment.txHash);
     if (receipt.status !== 'success') {
       throw new VerificationError('TX_REVERTED: receipt status is not success');
     }
@@ -80,7 +118,7 @@ export class PaymentVerifierService {
       );
     }
 
-    const block = await this.rpc().getBlock({
+    const block = await this.rpc(srcChainId).getBlock({
       blockNumber: receipt.blockNumber,
     });
     if (block.hash.toLowerCase() !== receipt.blockHash.toLowerCase()) {
@@ -88,7 +126,7 @@ export class PaymentVerifierService {
     }
 
     const depth = this.confirmations.depthFor(srcChainId);
-    const head = Number(await this.rpc().getBlockNumber());
+    const head = Number(await this.rpc(srcChainId).getBlockNumber());
     const confirmations = head - Number(receipt.blockNumber) + 1;
     if (confirmations < depth) {
       throw new VerificationError(
@@ -167,9 +205,9 @@ export class PaymentVerifierService {
     );
   }
 
-  private async receipt(txHash: string) {
+  private async receipt(srcChainId: number, txHash: string) {
     try {
-      return await this.rpc().getTransactionReceipt({
+      return await this.rpc(srcChainId).getTransactionReceipt({
         hash: normalizeTxHash(txHash) as Hex,
       });
     } catch (err) {
@@ -179,10 +217,18 @@ export class PaymentVerifierService {
     }
   }
 
-  private rpc(): PublicClient {
-    this.client ??= createPublicClient({
-      transport: http(this.config.rpcUrl),
-    });
-    return this.client;
+  private rpc(srcChainId: number): PublicClient {
+    const existing = this.clients.get(srcChainId);
+    if (existing) return existing;
+
+    const url = this.config.rpcUrlFor(srcChainId);
+    if (!url) {
+      throw new VerificationError(
+        `NO_NODE: ${this.config.id} has no RPC endpoint for chain ${srcChainId}`,
+      );
+    }
+    const client = createPublicClient({ transport: http(url) });
+    this.clients.set(srcChainId, client);
+    return client;
   }
 }

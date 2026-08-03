@@ -37,7 +37,8 @@ export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     this.logger.log(
       `Issuer ${this.config.id} up as ${this.config.signer.address} ` +
-        `(rpc=${redact(this.config.rpcUrl)}, prices=${this.config.priceProvider})`,
+        `(chains=${Object.keys(this.config.endpoints).join(',')}, ` +
+        `prices=${this.config.priceProvider})`,
     );
     if (this.config.pollIntervalMs <= 0) {
       this.logger.log(
@@ -125,14 +126,5 @@ export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
       EClaimFailureReason.ATTESTATION_REJECTED,
       `${this.config.id}: ${outcome.reason}`,
     );
-  }
-}
-
-function redact(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.protocol}//${parsed.host}`;
-  } catch {
-    return 'invalid-url';
   }
 }

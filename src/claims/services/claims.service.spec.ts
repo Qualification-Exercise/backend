@@ -1,10 +1,14 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   BadRequestException,
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
 
+import { privateKeyToAccount } from 'viem/accounts';
+
 import { ClaimEntity } from '@/claims/entities/claim.entity';
+import { claimMessage } from '@/wallets/address';
 import {
   EClaimFailureReason,
   EClaimStatus,
@@ -15,6 +19,15 @@ import { ECouponStatus } from '@/coupons/enums/coupon-status.enum';
 const USER = 'user-1';
 const OTHER_USER = 'user-2';
 const KEY = 'idem-1';
+const CHALLENGE_ID = '2f0c9d9e-6e2a-4a1e-9c66-7a1f0b4d2e11';
+const NONCE = `0x${'ab'.repeat(32)}`;
+
+const owner = privateKeyToAccount(
+  '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
+);
+const stranger = privateKeyToAccount(
+  '0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba',
+);
 const COUPON = {
   id: 'cpn-1',
   userId: USER,
@@ -28,6 +41,7 @@ interface IWorld {
   wallet?: string | null;
   lastClaimAt?: Date | null;
   duplicateClaim?: boolean;
+  challengeSpent?: boolean;
 }
 
 function fakeEm(world: IWorld) {
@@ -37,7 +51,6 @@ function fakeEm(world: IWorld) {
   const em = {
     saved,
     couponUpdates,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     query: async (sql: string): Promise<any[]> => {
       if (sql.includes('pg_advisory_xact_lock')) return [];
       if (sql.includes('FROM claims c')) {
@@ -49,7 +62,8 @@ function fakeEm(world: IWorld) {
         return ok ? [{ id: world.coupon!.id }] : [];
       }
       if (sql.includes('FROM wallets')) {
-        return world.wallet ? [{ address: world.wallet }] : [];
+        if (world.wallet === null) return [];
+        return [{ address: world.wallet ?? owner.address }];
       }
       throw new Error(`unexpected sql: ${sql}`);
     },
@@ -86,11 +100,32 @@ function build(world: IWorld = {}) {
   const settlements = { findOne: jest.fn().mockResolvedValue(null) };
   const claims = {
     manager: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       transaction: (cb: (m: any) => Promise<unknown>) => cb(em),
     },
     createQueryBuilder: jest.fn(),
   };
+  const challenges = {
+    delete: jest.fn(),
+    save: jest.fn(async (row: Record<string, unknown>) => ({
+      id: CHALLENGE_ID,
+      ...row,
+    })),
+    create: jest.fn((row: Record<string, unknown>) => row),
+    createQueryBuilder: () => {
+      const qb: any = {
+        execute: async () => ({
+          raw: world.challengeSpent ? [] : [{ nonce: NONCE }],
+        }),
+      };
+      qb.update = () => qb;
+      qb.set = () => qb;
+      qb.where = () => qb;
+      qb.andWhere = () => qb;
+      qb.returning = () => qb;
+      return qb;
+    },
+  };
+  const wallets = { confirmOwnership: jest.fn().mockResolvedValue(undefined) };
   const idempotency = {
     run: jest.fn(
       (
@@ -117,20 +152,46 @@ function build(world: IWorld = {}) {
     claims as never,
     attestations as never,
     settlements as never,
+    challenges as never,
+    wallets as never,
     idempotency as never,
     confirmations as never,
     config as never,
   );
-  return { service, em, claims, attestations, settlements, idempotency };
+  return {
+    service,
+    em,
+    claims,
+    attestations,
+    settlements,
+    idempotency,
+    challenges,
+    wallets,
+  };
 }
 
 describe('ClaimsService.create', () => {
-  const ok: IWorld = { coupon: COUPON, wallet: '0xRecipient' };
+  const ok: IWorld = { coupon: COUPON };
+  let signature: string;
+  let foreignSignature: string;
+
+  beforeAll(async () => {
+    const message = claimMessage(NONCE, COUPON.code);
+    signature = await owner.signMessage({ message });
+    foreignSignature = await stranger.signMessage({ message });
+  });
+
+  const signed = (over: Record<string, unknown> = {}) => ({
+    couponId: COUPON.id,
+    challengeId: CHALLENGE_ID,
+    signature,
+    ...over,
+  });
 
   it('creates one claim carrying the coupon paymentRef and amount unchanged', async () => {
     const { service, em } = build({ ...ok });
 
-    const result = await service.create(USER, { couponId: COUPON.id }, KEY);
+    const result = await service.create(USER, signed(), KEY);
 
     expect(result).toMatchObject({
       claimId: 'clm-1',
@@ -141,7 +202,7 @@ describe('ClaimsService.create', () => {
     });
     // Recipient resolved server-side and frozen on the claim.
     expect(em.saved[0]).toMatchObject({
-      recipient: '0xRecipient',
+      recipient: owner.address,
       amount: COUPON.amount,
       chainId: 11155111,
     });
@@ -152,7 +213,7 @@ describe('ClaimsService.create', () => {
   it('routes the request through the idempotency key it was given', async () => {
     const { service, idempotency } = build({ ...ok });
 
-    await service.create(USER, { couponId: COUPON.id }, ` ${KEY} `);
+    await service.create(USER, signed(), ` ${KEY} `);
 
     expect(idempotency.run).toHaveBeenCalledWith(
       USER,
@@ -164,26 +225,28 @@ describe('ClaimsService.create', () => {
 
   it('refuses a request with no Idempotency-Key', async () => {
     const { service } = build({ ...ok });
-    await expect(
-      service.create(USER, { couponId: COUPON.id }, undefined),
-    ).rejects.toThrow(BadRequestException);
+    await expect(service.create(USER, signed(), undefined)).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('refuses both identifiers at once, and neither', async () => {
     const { service } = build({ ...ok });
     await expect(
-      service.create(USER, { couponId: COUPON.id, code: COUPON.code }, KEY),
+      service.create(USER, signed({ code: COUPON.code }), KEY),
     ).rejects.toThrow(BadRequestException);
-    await expect(service.create(USER, {}, KEY)).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(
+      service.create(USER, signed({ couponId: undefined }), KEY),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('resolves a manually typed code however the user grouped it', async () => {
     const { service } = build({ ...ok });
     const result = await service.create(
       USER,
-      { code: 'aaaabbbbccccdddd' },
+      // Typed without dashes and in lower case: the signature is over the
+      // canonical code, so the same signature still works.
+      signed({ couponId: undefined, code: 'aaaabbbbccccdddd' }),
       KEY,
     );
     expect(result.couponId).toBe(COUPON.id);
@@ -191,36 +254,66 @@ describe('ClaimsService.create', () => {
 
   it("404s on another user's coupon rather than 403", async () => {
     const { service } = build({ ...ok });
-    await expect(
-      service.create(OTHER_USER, { couponId: COUPON.id }, KEY),
-    ).rejects.toThrow(NotFoundException);
+    await expect(service.create(OTHER_USER, signed(), KEY)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it('409s when the coupon is no longer claimable — the state change is the check', async () => {
     const { service, em } = build({
       coupon: { ...COUPON, claimable: false },
-      wallet: '0xRecipient',
     });
 
-    await expect(
-      service.create(USER, { couponId: COUPON.id }, KEY),
-    ).rejects.toThrow(ConflictException);
+    await expect(service.create(USER, signed(), KEY)).rejects.toThrow(
+      ConflictException,
+    );
     expect(em.saved).toHaveLength(0);
   });
 
   it('409s when a concurrent claim already took the coupon', async () => {
     const { service } = build({ ...ok, duplicateClaim: true });
-    await expect(
-      service.create(USER, { couponId: COUPON.id }, KEY),
-    ).rejects.toThrow(ConflictException);
+    await expect(service.create(USER, signed(), KEY)).rejects.toThrow(
+      ConflictException,
+    );
   });
 
   it('404s WALLET_NOT_LINKED when the user has no verified EVM wallet', async () => {
     const { service, em } = build({ coupon: COUPON, wallet: null });
-    await expect(
-      service.create(USER, { couponId: COUPON.id }, KEY),
-    ).rejects.toThrow(NotFoundException);
+    await expect(service.create(USER, signed(), KEY)).rejects.toThrow(
+      NotFoundException,
+    );
     expect(em.saved).toHaveLength(0);
+  });
+
+  it('refuses a signature from an address that is not the payout wallet', async () => {
+    const { service, em, wallets } = build({ ...ok });
+
+    await expect(
+      service.create(USER, signed({ signature: foreignSignature }), KEY),
+    ).rejects.toThrow(BadRequestException);
+    expect(em.saved).toHaveLength(0);
+    expect(wallets.confirmOwnership).not.toHaveBeenCalled();
+  });
+
+  it('refuses a spent or expired challenge', async () => {
+    const { service, em } = build({ ...ok, challengeSpent: true });
+
+    await expect(service.create(USER, signed(), KEY)).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(em.saved).toHaveLength(0);
+  });
+
+  it('marks the proven address verified — a signature outranks a declaration', async () => {
+    const { service, wallets } = build({ ...ok });
+
+    await service.create(USER, signed(), KEY);
+
+    expect(wallets.confirmOwnership).toHaveBeenCalledWith(
+      expect.anything(),
+      USER,
+      owner.address,
+    );
   });
 
   it('429-equivalent: refuses a second claim inside the cooldown, with nextClaimAt', async () => {
@@ -229,9 +322,7 @@ describe('ClaimsService.create', () => {
       lastClaimAt: new Date(Date.now() - 60_000),
     });
 
-    await expect(
-      service.create(USER, { couponId: COUPON.id }, KEY),
-    ).rejects.toMatchObject({
+    await expect(service.create(USER, signed(), KEY)).rejects.toMatchObject({
       status: 429,
       response: {
         error: {
@@ -248,9 +339,9 @@ describe('ClaimsService.create', () => {
       ...ok,
       lastClaimAt: new Date(Date.now() - 25 * 3_600_000),
     });
-    await expect(
-      service.create(USER, { couponId: COUPON.id }, KEY),
-    ).resolves.toMatchObject({ claimId: 'clm-1' });
+    await expect(service.create(USER, signed(), KEY)).resolves.toMatchObject({
+      claimId: 'clm-1',
+    });
   });
 });
 
@@ -316,7 +407,6 @@ describe('ClaimsService.findById', () => {
 describe('ClaimsService state machine', () => {
   function withUpdate(couponId: string | undefined) {
     const built = build();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const qb: any = {
       execute: async () => ({ raw: couponId ? [{ coupon_id: couponId }] : [] }),
     };
