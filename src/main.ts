@@ -37,7 +37,7 @@ async function bootstrap() {
     }),
   );
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', { exclude: ['health'] });
 
   const port = env.PORT;
   setupSwagger(app, port);

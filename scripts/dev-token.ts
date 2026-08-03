@@ -1,12 +1,12 @@
 /**
- * Local-only helper for exercising the wallet-mapping endpoints by hand.
+ * Local-only helper for exercising the API by hand.
  *
- * Postman cannot produce a secp256k1 signature and the API issues no tokens of
- * its own, so this prints the two things a manual run needs: a JWT the guard
- * accepts, and an ownership signature over a challenge nonce.
+ * Postman cannot produce a secp256k1 signature, so this prints the two things a
+ * manual run needs: a JWT the guard accepts, and the claim-screen signature over
+ * a challenge nonce.
  *
  *   npx ts-node -r tsconfig-paths/register scripts/dev-token.ts
- *   npx ts-node -r tsconfig-paths/register scripts/dev-token.ts sign <nonce>
+ *   npx ts-node -r tsconfig-paths/register scripts/dev-token.ts sign <nonce> <coupon>
  *
  * Never run this against anything but a local database.
  */
@@ -18,7 +18,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { validateEnv } from '@/config/env';
 import { AppDataSource } from '@/database/data-source';
 import { User } from '@/users/entities/user.entity';
-import { ownershipMessage } from '@/wallets/address';
+import { claimMessage } from '@/wallets/address';
 
 const env = validateEnv(process.env);
 
@@ -67,15 +67,21 @@ async function issueToken(sub = DEV_SUB) {
   console.log(`token:   ${token}`);
 }
 
-async function sign(nonce: string) {
+async function sign(nonce: string, coupon: string) {
+  if (!nonce || !coupon) {
+    throw new Error('usage: dev-token.ts sign <nonce> <coupon-code>');
+  }
   const account = privateKeyToAccount(DEV_PRIVATE_KEY);
-  const message = ownershipMessage(nonce);
+  // The same string `GET /claims/challenge` returns in `message`.
+  const message = claimMessage(nonce, coupon);
   console.log(`address:   ${account.address}`);
+  console.log(`message:   ${JSON.stringify(message)}`);
   console.log(`signature: ${await account.signMessage({ message })}`);
 }
 
-const [command, arg] = process.argv.slice(2);
-const run = command === 'sign' ? sign(arg) : issueToken(command || undefined);
+const [command, arg, arg2] = process.argv.slice(2);
+const run =
+  command === 'sign' ? sign(arg, arg2) : issueToken(command || undefined);
 
 run.catch((err) => {
   console.error(err);

@@ -1,10 +1,16 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { z } from 'zod';
 
 import type { Env } from '@/config/env';
+import { CounterService } from '@/common/metrics/counter.service';
+import {
+  COUNTER_INDEXER_ERRORS,
+  COUNTER_INDEXER_RATE_LIMITED,
+  COUNTER_INDEXER_REQUESTS,
+} from '@/common/metrics/service-counter.entity';
 import type {
   ITransfer,
   ITransferQuery,
@@ -51,6 +57,7 @@ export class IndexerService {
   constructor(
     private readonly http: HttpService,
     configService: ConfigService<Env, true>,
+    @Optional() private readonly counters?: CounterService,
   ) {
     this.baseUrl = configService.get('INDEXER_BASE_URL').replace(/\/$/, '');
     this.apiKey = configService.get('INDEXER_API_KEY');
@@ -104,16 +111,27 @@ export class IndexerService {
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       this.lastRequestAt = Date.now();
 
-      const response = await firstValueFrom(
-        this.http.request({
-          method,
-          url: `${this.baseUrl}${path}`,
-          data,
-          headers: { 'x-api-key': this.apiKey },
-          timeout: 15_000,
-        }),
-      );
-      return response.data;
+      this.counters?.increment(COUNTER_INDEXER_REQUESTS);
+      try {
+        const response = await firstValueFrom(
+          this.http.request({
+            method,
+            url: `${this.baseUrl}${path}`,
+            data,
+            headers: { 'x-api-key': this.apiKey },
+            timeout: 15_000,
+          }),
+        );
+        return response.data;
+      } catch (err) {
+        this.counters?.increment(COUNTER_INDEXER_ERRORS);
+        const status = (err as { response?: { status?: number } }).response
+          ?.status;
+        if (status === 429) {
+          this.counters?.increment(COUNTER_INDEXER_RATE_LIMITED);
+        }
+        throw err;
+      }
     });
 
     // Keep the chain alive even when one request rejects.

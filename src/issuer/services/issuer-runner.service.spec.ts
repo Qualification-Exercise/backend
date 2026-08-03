@@ -7,7 +7,10 @@ const CLAIM = { id: 'clm-1', coupon: { paymentRef: '0xref' } };
 function build(outcome: { signed: boolean; reason?: string }) {
   const config = {
     id: 'issuer-a',
-    rpcUrl: 'https://issuer-a.example/rpc',
+    endpoints: {
+      '1': 'https://issuer-a-mainnet.example/rpc',
+      '11155111': 'https://issuer-a.example/rpc',
+    },
     priceProvider: 'bitfinex',
     pollIntervalMs: 0,
     batchSize: 25,
@@ -85,7 +88,7 @@ describe('IssuerRunnerService', () => {
     await expect(service.onModuleInit()).rejects.toThrow(/signers registry/);
   });
 
-  it('never logs the RPC endpoint whole — the API key lives in the path', async () => {
+  it('never logs an RPC endpoint — the API key lives in its path', async () => {
     const { service } = build({ signed: true });
     const logged: string[] = [];
     jest
@@ -94,7 +97,7 @@ describe('IssuerRunnerService', () => {
 
     await service.onModuleInit();
 
-    expect(logged.join()).toContain('https://issuer-a.example');
-    expect(logged.join()).not.toContain('/rpc');
+    expect(logged.join()).toContain('chains=1,11155111');
+    expect(logged.join()).not.toContain('example');
   });
 });

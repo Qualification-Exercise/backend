@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -31,6 +32,11 @@ export class ClaimsController {
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     return this.claimsService.create(user.userId, dto, idempotencyKey);
+  }
+
+  @Get('challenge')
+  challenge(@CurrentUser() user: IAuthUser, @Query('coupon') coupon: string) {
+    return this.claimsService.createChallenge(user.userId, coupon ?? '');
   }
 
   @Get(':id')
