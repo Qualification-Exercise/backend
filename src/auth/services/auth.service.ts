@@ -12,7 +12,7 @@ import {
   IAuthResponse,
 } from '../interfaces/auth-response.interface';
 import { EErrorCodes } from '@/common/enums/error-codes.enum';
-import { TEST_USER_ID } from '@/database/seed';
+import { TEST_USER_ID } from '@/database/test-user';
 
 export type { IAuthResponse };
 

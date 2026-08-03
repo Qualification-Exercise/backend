@@ -69,6 +69,16 @@ jobs:
           DB_NAME: wdk_test
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          JWT_SECRET: ci-only-jwt-secret-value-not-used-anywhere-32
+          AUTH_ISSUER: https://ci.invalid
+          AUTH_AUDIENCE: wdk-backend-ci
+          JWKS_URI: https://ci.invalid/.well-known/jwks.json
+          GOOGLE_IOS_CLIENT_ID: ci.apps.googleusercontent.com
+          GOOGLE_ANDROID_CLIENT_ID: ci.apps.googleusercontent.com
+          SEED_BACKUP_ENCRYPTION_KEY: ci-only-seed-backup-key-not-used-anywhere
+          INDEXER_BASE_URL: https://ci.invalid/indexer
+          INDEXER_API_KEY: ci
+          UTILITY_TOKEN_CONTRACT_ADDRESS: "0x0000000000000000000000000000000000000000"
           PAYMENT_REFS_FIXTURE: ${{ github.workspace }}/contract/test/fixtures/payment-refs.json
           ENTITLEMENT_FIXTURE: ${{ github.workspace }}/contract/test/fixtures/entitlement.json
         run: npm run test:cov
