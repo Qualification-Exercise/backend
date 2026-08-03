@@ -37,6 +37,8 @@ async function bootstrap() {
     }),
   );
 
+  app.setGlobalPrefix('api');
+
   const port = env.PORT;
   setupSwagger(app, port);
 
