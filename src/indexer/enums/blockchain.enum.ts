@@ -1,9 +1,11 @@
 export enum EBlockchain {
   ETHEREUM = 'ethereum',
   SEPOLIA = 'sepolia',
+  PLASMA = 'plasma',
   ARBITRUM = 'arbitrum',
   POLYGON = 'polygon',
   TRON = 'tron',
+  TON = 'ton',
   BITCOIN = 'bitcoin',
   SPARK = 'spark',
 }
