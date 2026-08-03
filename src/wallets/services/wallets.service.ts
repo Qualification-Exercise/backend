@@ -1,40 +1,41 @@
-import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
   Injectable,
   Logger,
-  NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
-import type { Hex } from 'viem';
+import { In, Repository, type EntityManager } from 'typeorm';
 
+import { chainKindOf } from '@/chains';
+import { EChainKind } from '@/chains/chain-kind.enum';
 import { apiError } from '@/common/api-error';
 import {
+  CHAIN_KIND_OF_FAMILY,
   InvalidAddressError,
-  UnsupportedProofError,
   normalizeAddress,
-  ownershipMessage,
-  verifyOwnership,
 } from '@/wallets/address';
 import { Wallet } from '@/wallets/entities/wallet.entity';
-import { WalletChallenge } from '@/wallets/entities/wallet-challenge.entity';
-import type { LinkWalletDTO } from '@/wallets/dtos/link-wallet.dto';
-
-const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-const PG_UNIQUE_VIOLATION = '23505';
-
-export interface IChallengeResponse {
-  challengeId: string;
-  nonce: string;
-  expiresAt: string;
-}
+import type {
+  LinkWalletEntryDTO,
+  LinkWalletsDTO,
+} from '@/wallets/dtos/link-wallets.dto';
 
 export interface IWalletResponse {
+  chain: EChainKind;
+  srcChainId: number;
   address: string;
-  chainFamily: string;
+  primary: boolean;
+  verified: boolean;
   linkedAt: string;
+}
+
+/** One request entry, once it has survived validation. */
+interface IResolvedEntry {
+  chain: EChainKind;
+  srcChainId: number;
+  address: string;
+  path: string | null;
 }
 
 @Injectable()
@@ -44,77 +45,89 @@ export class WalletsService {
   constructor(
     @InjectRepository(Wallet)
     private readonly wallets: Repository<Wallet>,
-    @InjectRepository(WalletChallenge)
-    private readonly challenges: Repository<WalletChallenge>,
   ) {}
-
-  async createChallenge(userId: string): Promise<IChallengeResponse> {
-    await this.challenges.delete({ userId, expiresAt: LessThan(new Date()) });
-
-    const challenge = await this.challenges.save(
-      this.challenges.create({
-        userId,
-        nonce: `0x${randomBytes(32).toString('hex')}`,
-        expiresAt: new Date(Date.now() + CHALLENGE_TTL_MS),
-        consumedAt: null,
-      }),
-    );
-
-    return {
-      challengeId: challenge.id,
-      nonce: challenge.nonce,
-      expiresAt: challenge.expiresAt.toISOString(),
-    };
-  }
 
   async listWallets(userId: string): Promise<IWalletResponse[]> {
     const rows = await this.wallets.find({
       where: { userId },
       order: { createdAt: 'ASC' },
     });
-    return rows.map((w) => ({
-      address: w.address,
-      chainFamily: w.chainFamily,
-      linkedAt: w.createdAt.toISOString(),
-    }));
+    return rows.map((w) => this.toResponse(w));
   }
 
-  async linkWallet(
+  async linkWallets(
     userId: string,
-    dto: LinkWalletDTO,
-  ): Promise<{ address: string; linked: true }> {
-    const { family, address } = this.normalizeOrThrow(dto.address);
-    const nonce = await this.consumeChallenge(userId, dto.challengeId);
+    dto: LinkWalletsDTO,
+  ): Promise<{ wallets: IWalletResponse[] }> {
+    const entries = dto.wallets.map((entry) => this.resolveEntry(entry));
+    this.assertOneAddressPerChain(entries);
+    this.assertHasPrimary(entries);
 
-    let proven = false;
-    try {
-      proven = await verifyOwnership(
-        address,
-        ownershipMessage(nonce),
-        dto.signature as Hex,
+    const stored = await this.wallets.manager.transaction((em) =>
+      this.store(em, userId, entries),
+    );
+    return { wallets: stored.map((w) => this.toResponse(w)) };
+  }
+
+  async confirmOwnership(
+    em: EntityManager,
+    userId: string,
+    address: string,
+  ): Promise<void> {
+    const existing = await em.findOne(Wallet, { where: { address } });
+
+    if (existing && existing.userId !== userId) {
+      this.logger.error(
+        `security_event=wallet.address_reassigned address=${address} ` +
+          `from=${existing.userId} to=${userId} reason=proved_ownership`,
       );
-    } catch (err) {
-      if (err instanceof UnsupportedProofError) {
-        throw new NotImplementedException(
-          apiError('WALLET_PROOF_UNSUPPORTED', err.message, { family }),
-        );
-      }
-      throw err;
+      await em.delete(Wallet, { id: existing.id });
     }
 
-    if (!proven) {
-      this.logger.warn(
-        `security_event=wallet.ownership_proof_failed userId=${userId} address=${address}`,
-      );
+    await em.update(
+      Wallet,
+      { userId, address },
+      { verified: true, verifiedAt: new Date() },
+    );
+  }
+
+  private resolveEntry(entry: LinkWalletEntryDTO): IResolvedEntry {
+    const chain = this.chainOfOrThrow(entry.srcChainId);
+    if (chain !== entry.chain) {
       throw new BadRequestException(
         apiError(
-          'OWNERSHIP_PROOF_INVALID',
-          'Signature does not prove control of this address',
+          'CHAIN_MISMATCH',
+          `srcChainId ${entry.srcChainId} is a ${chain} chain, not ${entry.chain}`,
         ),
       );
     }
 
-    return this.store(userId, address, family);
+    const { family, address } = this.normalizeOrThrow(entry.address);
+    if (CHAIN_KIND_OF_FAMILY[family] !== chain) {
+      throw new BadRequestException(
+        apiError(
+          'CHAIN_MISMATCH',
+          `Address ${entry.address} is not a ${chain} address`,
+        ),
+      );
+    }
+
+    return {
+      chain,
+      srcChainId: entry.srcChainId,
+      address,
+      path: entry.path ?? null,
+    };
+  }
+
+  private chainOfOrThrow(srcChainId: number): EChainKind {
+    try {
+      return chainKindOf(srcChainId);
+    } catch {
+      throw new BadRequestException(
+        apiError('UNKNOWN_CHAIN', `Unsupported srcChainId: ${srcChainId}`),
+      );
+    }
   }
 
   private normalizeOrThrow(input: string) {
@@ -128,64 +141,100 @@ export class WalletsService {
     }
   }
 
-  private async consumeChallenge(
-    userId: string,
-    challengeId: string,
-  ): Promise<string> {
-    const claimed = await this.challenges
-      .createQueryBuilder()
-      .update(WalletChallenge)
-      .set({ consumedAt: new Date() })
-      .where('id = :challengeId', { challengeId })
-      .andWhere('"userId" = :userId', { userId })
-      .andWhere('"consumedAt" IS NULL')
-      .andWhere('"expiresAt" > now()')
-      .returning('nonce')
-      .execute();
-
-    const nonce = claimed.raw?.[0]?.nonce;
-    if (!nonce) {
+  private assertOneAddressPerChain(entries: IResolvedEntry[]): void {
+    const chains = new Set(entries.map((e) => e.chain));
+    if (chains.size !== entries.length) {
       throw new BadRequestException(
         apiError(
-          'CHALLENGE_INVALID',
-          'Challenge is unknown, already used, expired, or belongs to another user',
+          'DUPLICATE_CHAIN',
+          'A user has at most one address per chain; the request lists a chain twice',
         ),
       );
     }
-    return nonce as string;
   }
 
-  private async store(
-    userId: string,
-    address: string,
-    chainFamily: Wallet['chainFamily'],
-  ): Promise<{ address: string; linked: true }> {
-    try {
-      await this.wallets.insert({ userId, address, chainFamily });
-      return { address, linked: true };
-    } catch (err) {
-      if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
-      return this.resolveExisting(userId, address);
+  private assertHasPrimary(entries: IResolvedEntry[]): void {
+    if (!entries.some((e) => e.chain === EChainKind.EVM)) {
+      throw new BadRequestException(
+        apiError(
+          'NO_PRIMARY_WALLET',
+          'The EVM address is the payout recipient and must be registered',
+        ),
+      );
     }
   }
 
-  private async resolveExisting(
+  private async store(
+    em: EntityManager,
     userId: string,
-    address: string,
-  ): Promise<{ address: string; linked: true }> {
-    const existing = await this.wallets.findOne({ where: { address } });
+    entries: IResolvedEntry[],
+  ): Promise<Wallet[]> {
+    const mine = await em.find(Wallet, { where: { userId } });
+    const claimedElsewhere = await em.find(Wallet, {
+      where: { address: In(entries.map((e) => e.address)) },
+    });
 
-    if (existing?.userId === userId) return { address, linked: true };
+    const fresh: Wallet[] = [];
+    for (const entry of entries) {
+      const taken = claimedElsewhere.find(
+        (w) => w.address === entry.address && w.chain === entry.chain,
+      );
+      if (taken && taken.userId !== userId) {
+        this.logger.warn(
+          `security_event=wallet.address_already_linked address=${entry.address} ` +
+            `claimedBy=${userId} heldBy=${taken.userId} verified=${taken.verified}`,
+        );
+        throw new ConflictException(
+          apiError(
+            'ADDRESS_ALREADY_LINKED',
+            'Address is already mapped to another user',
+          ),
+        );
+      }
 
-    this.logger.error(
-      `security_event=wallet.address_already_linked address=${address} ` +
-        `claimedBy=${userId} ownedBy=${existing?.userId ?? 'unknown'}`,
-    );
-    throw new ConflictException(
-      apiError(
-        'ADDRESS_ALREADY_LINKED',
-        'Address is already mapped to another user',
-      ),
-    );
+      const existing = mine.find((w) => w.chain === entry.chain);
+      if (existing) {
+        // A different address for a chain the user already registered means a
+        // new mnemonic, and that must be an explicit reset — never a silent
+        // overwrite of the address that owns the coupons.
+        if (existing.address !== entry.address) {
+          throw new ConflictException(
+            apiError(
+              'WALLET_CHAIN_CONFLICT',
+              `A different ${entry.chain} address is already registered for this user`,
+              { chain: entry.chain },
+            ),
+          );
+        }
+        continue;
+      }
+
+      fresh.push(
+        em.create(Wallet, {
+          userId,
+          chain: entry.chain,
+          srcChainId: entry.srcChainId,
+          address: entry.address,
+          path: entry.path,
+          isPrimary: entry.chain === EChainKind.EVM,
+          verified: false,
+          verifiedAt: null,
+        }),
+      );
+    }
+
+    if (fresh.length > 0) await em.save(fresh);
+    return em.find(Wallet, { where: { userId }, order: { createdAt: 'ASC' } });
+  }
+
+  private toResponse(wallet: Wallet): IWalletResponse {
+    return {
+      chain: wallet.chain,
+      srcChainId: Number(wallet.srcChainId),
+      address: wallet.address,
+      primary: wallet.isPrimary,
+      verified: wallet.verified,
+      linkedAt: wallet.createdAt.toISOString(),
+    };
   }
 }

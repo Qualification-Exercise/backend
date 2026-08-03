@@ -43,9 +43,7 @@ describe('AuthService', () => {
           provide: UsersService,
           useValue: {
             findByExternalAuthId: jest.fn(),
-            findByEmail: jest.fn(),
             create: jest.fn(),
-            updateExternalAuthId: jest.fn(),
           },
         },
         {
@@ -91,7 +89,6 @@ describe('AuthService', () => {
         .spyOn(googleVerifier, 'verifyIdTokenForProfile')
         .mockResolvedValue(googleProfile);
       jest.spyOn(usersService, 'findByExternalAuthId').mockResolvedValue(null);
-      jest.spyOn(usersService, 'findByEmail').mockResolvedValue(null);
       jest.spyOn(usersService, 'create').mockResolvedValue(newUser);
       jest.spyOn(jwtService, 'sign').mockReturnValue('token');
 
@@ -115,7 +112,7 @@ describe('AuthService', () => {
       });
     });
 
-    it('should return tokens for existing user by externalAuthId', async () => {
+    it('should return tokens for the existing user with that IdP subject', async () => {
       const existingUser = {
         id: 'existing-user-id',
         externalAuthId: 'google-123',
@@ -127,50 +124,38 @@ describe('AuthService', () => {
       jest
         .spyOn(googleVerifier, 'verifyIdTokenForProfile')
         .mockResolvedValue(googleProfile);
-      jest.spyOn(usersService, 'findByEmail').mockResolvedValue(existingUser);
+      jest
+        .spyOn(usersService, 'findByExternalAuthId')
+        .mockResolvedValue(existingUser);
       jest.spyOn(jwtService, 'sign').mockReturnValue('token');
 
       const result = await service.googleLogin('id-token', EClientType.ANDROID);
 
       expect(result.user.id).toBe('existing-user-id');
       expect(usersService.create).not.toHaveBeenCalled();
-      expect(usersService.updateExternalAuthId).not.toHaveBeenCalled();
     });
 
-    it('should link accounts and log security event when email exists under different externalAuthId', async () => {
-      const existingUser = {
-        id: 'existing-user-id',
-        externalAuthId: 'auth0-456',
-        email: 'test@example.com',
-        firstName: 'Jane',
-        lastName: 'Smith',
-      } as User;
-
-      const linkedUser = {
-        ...existingUser,
+    it('does not let a second IdP subject take over an existing email', async () => {
+      const created = {
+        id: 'new-user-id',
         externalAuthId: 'google-123',
+        email: 'test@example.com',
+        firstName: 'John',
+        lastName: 'Doe',
       } as User;
 
       jest
         .spyOn(googleVerifier, 'verifyIdTokenForProfile')
         .mockResolvedValue(googleProfile);
-      jest.spyOn(usersService, 'findByEmail').mockResolvedValue(existingUser);
-      jest
-        .spyOn(usersService, 'updateExternalAuthId')
-        .mockResolvedValue(linkedUser);
+      // Someone already signed up with this email under another provider.
+      jest.spyOn(usersService, 'findByExternalAuthId').mockResolvedValue(null);
+      jest.spyOn(usersService, 'create').mockResolvedValue(created);
       jest.spyOn(jwtService, 'sign').mockReturnValue('token');
-      const loggerSpy = jest.spyOn(service['logger'], 'warn');
 
       const result = await service.googleLogin('id-token', EClientType.WEB);
 
-      expect(result.user.id).toBe('existing-user-id');
-      expect(usersService.updateExternalAuthId).toHaveBeenCalledWith(
-        'existing-user-id',
-        'google-123',
-      );
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining('security_event=auth.account_linked'),
-      );
+      // A separate account, not the other subject's account.
+      expect(result.user.id).toBe('new-user-id');
     });
 
     it('should reject unverified email from verifier', async () => {
@@ -181,7 +166,7 @@ describe('AuthService', () => {
       await expect(
         service.googleLogin('id-token', EClientType.IOS),
       ).rejects.toThrow(UnauthorizedException);
-      expect(usersService.findByEmail).not.toHaveBeenCalled();
+      expect(usersService.findByExternalAuthId).not.toHaveBeenCalled();
       expect(usersService.create).not.toHaveBeenCalled();
     });
   });
@@ -283,6 +268,7 @@ describe('AuthService', () => {
 
       const signSpy = jest.spyOn(jwtService, 'sign').mockReturnValue('token');
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (service as any).buildAuthResponse(user);
 
       expect(signSpy).toHaveBeenCalledTimes(2);

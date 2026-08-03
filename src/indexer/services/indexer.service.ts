@@ -1,10 +1,20 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { z } from 'zod';
 
 import type { Env } from '@/config/env';
+import { CounterService } from '@/common/metrics/counter.service';
+import {
+  COUNTER_INDEXER_ERRORS,
+  COUNTER_INDEXER_RATE_LIMITED,
+  COUNTER_INDEXER_REQUESTS,
+} from '@/common/metrics/service-counter.entity';
+import type {
+  ITransfer,
+  ITransferQuery,
+} from '@/indexer/interfaces/indexer.interface';
 
 const transferSchema = z.object({
   blockchain: z.string(),
@@ -13,7 +23,7 @@ const transferSchema = z.object({
   transferIndex: z.number().int().nonnegative(),
   token: z.string(),
   amount: z.string(),
-  timestamp: z.number().int(),
+  timestamp: z.number().int().nonnegative(),
   transactionIndex: z.number().int().nonnegative(),
   logIndex: z.number().int().nonnegative().nullable(),
   from: z.string(),
@@ -24,15 +34,6 @@ const transferSchema = z.object({
 
 const transfersSchema = z.object({ transfers: z.array(transferSchema) });
 const batchSchema = z.array(transfersSchema);
-
-export type ITransfer = z.infer<typeof transferSchema>;
-
-export interface ITransferQuery {
-  blockchain: string;
-  token: string;
-  address: string;
-  limit: number;
-}
 
 function assertQuery(query: ITransferQuery): ITransferQuery {
   if (!Number.isInteger(query.limit) || query.limit <= 0) {
@@ -56,24 +57,37 @@ export class IndexerService {
   constructor(
     private readonly http: HttpService,
     configService: ConfigService<Env, true>,
+    @Optional() private readonly counters?: CounterService,
   ) {
     this.baseUrl = configService.get('INDEXER_BASE_URL').replace(/\/$/, '');
     this.apiKey = configService.get('INDEXER_API_KEY');
   }
 
   /** One address. Prefer `batchTokenTransfers` whenever more than one is due. */
-  async tokenTransfers(query: ITransferQuery): Promise<ITransfer[]> {
-    const { blockchain, token, address, limit } = assertQuery(query);
+  async tokenTransfers(
+    query: ITransferQuery,
+  ): Promise<{ transfers: ITransfer[] }> {
+    const { blockchain, token, address, limit, fromTs, toTs } =
+      assertQuery(query);
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (fromTs !== undefined) params.append('fromTs', String(fromTs));
+    if (toTs !== undefined) params.append('toTs', String(toTs));
+    const encodedPath = [blockchain, token, address]
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
     const body = await this.request(
       'GET',
-      `/${blockchain}/${token}/${address}/token-transfers?limit=${limit}`,
+      `/${encodedPath}/token-transfers?${params}`,
     );
-    return transfersSchema.parse(body).transfers;
+    return transfersSchema.parse(body);
   }
 
   async batchTokenTransfers(queries: ITransferQuery[]): Promise<ITransfer[][]> {
     if (queries.length === 0) return [];
-    if (queries.length === 1) return [await this.tokenTransfers(queries[0])];
+    if (queries.length === 1) {
+      const result = await this.tokenTransfers(queries[0]);
+      return [result.transfers];
+    }
     queries.forEach(assertQuery);
 
     const body = await this.request('POST', '/batch/token-transfers', queries);
@@ -86,27 +100,38 @@ export class IndexerService {
     return parsed.map((entry) => entry.transfers);
   }
 
-  private request(
+  private request<IResponse>(
     method: 'GET' | 'POST',
     path: string,
     data?: unknown,
-  ): Promise<unknown> {
+  ): Promise<IResponse> {
     // Serialise through one queue so concurrent callers cannot burst the budget.
     const result = this.queue.then(async () => {
       const wait = this.lastRequestAt + MIN_REQUEST_GAP_MS - Date.now();
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       this.lastRequestAt = Date.now();
 
-      const response = await firstValueFrom(
-        this.http.request({
-          method,
-          url: `${this.baseUrl}${path}`,
-          data,
-          headers: { 'x-api-key': this.apiKey },
-          timeout: 15_000,
-        }),
-      );
-      return response.data;
+      this.counters?.increment(COUNTER_INDEXER_REQUESTS);
+      try {
+        const response = await firstValueFrom(
+          this.http.request({
+            method,
+            url: `${this.baseUrl}${path}`,
+            data,
+            headers: { 'x-api-key': this.apiKey },
+            timeout: 15_000,
+          }),
+        );
+        return response.data;
+      } catch (err) {
+        this.counters?.increment(COUNTER_INDEXER_ERRORS);
+        const status = (err as { response?: { status?: number } }).response
+          ?.status;
+        if (status === 429) {
+          this.counters?.increment(COUNTER_INDEXER_RATE_LIMITED);
+        }
+        throw err;
+      }
     });
 
     // Keep the chain alive even when one request rejects.

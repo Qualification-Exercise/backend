@@ -8,8 +8,8 @@ import {
 } from 'typeorm';
 import { User } from '@/users/entities/user.entity';
 
-@Entity('wallet_challenges')
-export class WalletChallenge {
+@Entity('claim_challenges')
+export class ClaimChallenge {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 

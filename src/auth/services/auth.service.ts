@@ -1,4 +1,4 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { apiError } from '@/common/api-error';
@@ -12,14 +12,12 @@ import {
   IAuthResponse,
 } from '../interfaces/auth-response.interface';
 import { EErrorCodes } from '@/common/enums/error-codes.enum';
-import { TEST_USER_ID } from '@/database/seed';
+import { TEST_USER_ID } from '@/database/test-user';
 
 export type { IAuthResponse };
 
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
-
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService<Env>,
@@ -36,20 +34,14 @@ export class AuthService {
       type,
     );
 
-    let user = await this.usersService.findByEmail(profile.email);
-    if (!user) {
-      user = await this.usersService.create({
+    const user =
+      (await this.usersService.findByExternalAuthId(profile.sub)) ??
+      (await this.usersService.create({
         externalAuthId: profile.sub,
         email: profile.email,
         firstName: profile.firstName,
         lastName: profile.lastName,
-      });
-    } else if (user.externalAuthId !== profile.sub) {
-      this.logger.warn(
-        `security_event=auth.account_linked userId=${user.id} oldExternalAuthId=${user.externalAuthId} newExternalAuthId=${profile.sub}`,
-      );
-      user = await this.usersService.updateExternalAuthId(user.id, profile.sub);
-    }
+      }));
 
     return this.buildAuthResponse(user);
   }
@@ -117,7 +109,7 @@ export class AuthService {
     const claims = {
       sub: user.externalAuthId,
       userId: user.id,
-      email: user.email,
+      email: user.email ?? undefined,
     };
     const accessToken = this.jwtService.sign(claims, {
       expiresIn: this.configService.get('JWT_EXPIRATION'),

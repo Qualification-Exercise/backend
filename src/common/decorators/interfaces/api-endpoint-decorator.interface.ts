@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { HttpStatus, Type } from '@nestjs/common';
 
 export interface IApiErrorResponse {

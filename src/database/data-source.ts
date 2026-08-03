@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { validateEnv } from '@/config/env';
+import { ENTITIES } from './entities';
 import { migrations } from './migrations';
 
 const env = validateEnv(process.env);
@@ -15,7 +16,7 @@ export const AppDataSource = new DataSource({
   database: env.DB_NAME,
   synchronize: env.DB_SYNCHRONIZE,
   logging: env.NODE_ENV === 'development',
-  entities: ['src/**/*.entity.ts'],
+  entities: ENTITIES,
   migrations,
   subscribers: [],
   migrationsTransactionMode: 'all',

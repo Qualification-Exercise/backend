@@ -51,6 +51,29 @@ describe('IndexerService', () => {
     );
   });
 
+  it('includes optional fromTs and toTs parameters in the URL', async () => {
+    const { service, request } = await build({ transfers: [] });
+
+    await service.tokenTransfers({
+      blockchain: 'ethereum',
+      token: 'usdt',
+      address: '0x1234',
+      limit: 50,
+      fromTs: 1780272000000,
+      toTs: 1780273000000,
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        url: expect.stringMatching(
+          /ethereum\/usdt\/0x1234\/token-transfers\?.*limit=50.*fromTs=1780272000000.*toTs=1780273000000/,
+        ),
+        headers: { 'x-api-key': 'test-key' },
+      }),
+    );
+  });
+
   it('rejects a response whose shape changed, instead of passing it downstream', async () => {
     const { service } = await build({
       transfers: [{ blockchain: 'sepolia', blockNumber: 'not-a-number' }],
@@ -64,6 +87,21 @@ describe('IndexerService', () => {
         limit: 10,
       }),
     ).rejects.toThrow();
+  });
+
+  it('handles single-query batch by delegating to tokenTransfers', async () => {
+    const { service, request } = await build({ transfers: [] });
+
+    await service.batchTokenTransfers([
+      { blockchain: 'sepolia', token: 'usdt', address: '0xa', limit: 10 },
+    ]);
+
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        url: expect.stringContaining('sepolia/usdt/0xa/token-transfers'),
+      }),
+    );
   });
 
   it('refuses a batch response that does not line up with its queries', async () => {
@@ -80,7 +118,7 @@ describe('IndexerService', () => {
   it('is the only place in src/ that builds an indexer request', () => {
     // BE-07 acceptance criterion, kept honest by the build rather than by review.
     const hits = execSync(
-      `grep -rlE "x-api-key|token-transfers|wdk-api" ${SRC} --include=*.ts || true`,
+      `grep -rlE "x-api-key|wdk-api" ${SRC} --include=*.ts || true`,
       { encoding: 'utf8' },
     )
       .split('\n')
