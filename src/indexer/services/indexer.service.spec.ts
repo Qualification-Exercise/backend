@@ -12,6 +12,10 @@ const SRC = resolve(__dirname, '../..');
 
 function build(response: unknown) {
   const request = jest.fn(() => of({ data: response }));
+  const configValues: Record<string, unknown> = {
+    INDEXER_BASE_URL: 'https://indexer.test/api/v1/',
+    INDEXER_API_KEY: 'test-key',
+  };
   return Test.createTestingModule({
     providers: [
       IndexerService,
@@ -19,10 +23,7 @@ function build(response: unknown) {
       {
         provide: ConfigService,
         useValue: {
-          get: (key: string) =>
-            key === 'INDEXER_BASE_URL'
-              ? 'https://indexer.test/api/v1/'
-              : 'test-key',
+          get: (key: string) => configValues[key] ?? 'test-key',
         },
       },
     ],
@@ -113,6 +114,54 @@ describe('IndexerService', () => {
         { blockchain: 'sepolia', token: 'usdt', address: '0xb', limit: 10 },
       ]),
     ).rejects.toThrow(/2 queries/);
+  });
+
+  it('fetches token balance with path params and sends API key', async () => {
+    const { service, request } = await build({
+      tokenBalance: {
+        blockchain: 'ethereum',
+        token: 'usdt',
+        address: '0x1234',
+        amount: '1000000000',
+        decimals: 6,
+        lastUpdated: 1780272000,
+      },
+    });
+
+    await service.tokenBalance({
+      blockchain: 'ethereum',
+      token: 'usdt',
+      address: '0x1234',
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        url: 'https://indexer.test/api/v1/ethereum/usdt/0x1234/token-balances',
+        headers: { 'x-api-key': 'test-key' },
+      }),
+    );
+  });
+
+  it('rejects a balance response with invalid shape', async () => {
+    const { service } = await build({
+      tokenBalance: {
+        blockchain: 'ethereum',
+        token: 'usdt',
+        address: '0x1234',
+        amount: '1000000000',
+        decimals: 'not-a-number',
+        lastUpdated: 1780272000,
+      },
+    });
+
+    await expect(
+      service.tokenBalance({
+        blockchain: 'ethereum',
+        token: 'usdt',
+        address: '0x1234',
+      }),
+    ).rejects.toThrow();
   });
 
   it('is the only place in src/ that builds an indexer request', () => {
