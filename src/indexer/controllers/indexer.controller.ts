@@ -1,4 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 
 import { ApiEndpoint } from '@/common/decorators/api-endpoint.decorator';
 import { IndexerService } from '@/indexer/services/indexer.service';
@@ -11,6 +12,7 @@ export class IndexerController {
   constructor(private readonly indexerService: IndexerService) {}
 
   @Get('token-transfers')
+  @Throttle({ default: { limit: 8, ttl: 10000 } })
   @ApiEndpoint({
     summary: 'Fetch token transfers for an address',
     description: 'Query WDK indexer for token transfer history',

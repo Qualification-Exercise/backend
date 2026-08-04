@@ -1,16 +1,25 @@
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Optional,
+} from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import CircuitBreaker from 'opossum';
 import { firstValueFrom } from 'rxjs';
 import { z } from 'zod';
 
 import type { Env } from '@/config/env';
+import { apiError } from '@/common/api-error';
+import { EErrorCodes } from '@/common/enums/error-codes.enum';
 import { CounterService } from '@/common/metrics/counter.service';
 import {
   COUNTER_INDEXER_ERRORS,
   COUNTER_INDEXER_RATE_LIMITED,
   COUNTER_INDEXER_REQUESTS,
 } from '@/common/metrics/service-counter.entity';
+import { CIRCUIT_BREAKER_CONFIG } from '@/indexer/constants/circuit-breaker.constants';
 import type {
   ITransfer,
   ITransferQuery,
@@ -44,15 +53,12 @@ function assertQuery(query: ITransferQuery): ITransferQuery {
   return query;
 }
 
-const MIN_REQUEST_GAP_MS = 1_250;
-
 @Injectable()
 export class IndexerService {
   private readonly baseUrl: string;
   private readonly apiKey: string;
-
-  private lastRequestAt = 0;
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly maxRetries = 3;
+  private breaker: CircuitBreaker;
 
   constructor(
     private readonly http: HttpService,
@@ -61,6 +67,11 @@ export class IndexerService {
   ) {
     this.baseUrl = configService.get('INDEXER_BASE_URL').replace(/\/$/, '');
     this.apiKey = configService.get('INDEXER_API_KEY');
+
+    this.breaker = new CircuitBreaker(this.doRequest.bind(this), {
+      ...CIRCUIT_BREAKER_CONFIG,
+      errorFilter: (err: unknown) => !this.isRetryableError(err),
+    });
   }
 
   /** One address. Prefer `batchTokenTransfers` whenever more than one is due. */
@@ -100,18 +111,28 @@ export class IndexerService {
     return parsed.map((entry) => entry.transfers);
   }
 
+  getBreakerState(): 'closed' | 'open' | 'half-open' {
+    if (this.breaker.opened) return 'open';
+    if (this.breaker.halfOpen) return 'half-open';
+    return 'closed';
+  }
+
   private request<IResponse>(
     method: 'GET' | 'POST',
     path: string,
     data?: unknown,
   ): Promise<IResponse> {
-    // Serialise through one queue so concurrent callers cannot burst the budget.
-    const result = this.queue.then(async () => {
-      const wait = this.lastRequestAt + MIN_REQUEST_GAP_MS - Date.now();
-      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-      this.lastRequestAt = Date.now();
+    return this.breaker.fire(method, path, data) as Promise<IResponse>;
+  }
 
-      this.counters?.increment(COUNTER_INDEXER_REQUESTS);
+  private async doRequest<IResponse>(
+    method: 'GET' | 'POST',
+    path: string,
+    data?: unknown,
+  ): Promise<IResponse> {
+    this.counters?.increment(COUNTER_INDEXER_REQUESTS);
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
         const response = await firstValueFrom(
           this.http.request({
@@ -122,20 +143,113 @@ export class IndexerService {
             timeout: 15_000,
           }),
         );
-        return response.data;
+        return response.data as IResponse;
       } catch (err) {
-        this.counters?.increment(COUNTER_INDEXER_ERRORS);
         const status = (err as { response?: { status?: number } }).response
           ?.status;
+        const errorBody = (err as { response?: { data?: unknown } }).response
+          ?.data;
+
+        // 429: rate limited, retry with backoff
         if (status === 429) {
           this.counters?.increment(COUNTER_INDEXER_RATE_LIMITED);
+          if (attempt < this.maxRetries) {
+            const retryAfterSec = this.parseRetryAfter(err);
+            const delayMs = retryAfterSec
+              ? retryAfterSec * 1000
+              : this.exponentialBackoffMs(attempt);
+            await this.sleep(delayMs);
+            continue;
+          }
+          this.counters?.increment(COUNTER_INDEXER_ERRORS);
+          throw new HttpException(
+            apiError(
+              EErrorCodes.INDEXER_RATE_LIMITED,
+              'Indexer rate limit exceeded after retries',
+            ),
+            HttpStatus.SERVICE_UNAVAILABLE,
+          );
         }
-        throw err;
-      }
-    });
 
-    // Keep the chain alive even when one request rejects.
-    this.queue = result.catch(() => undefined);
-    return result;
+        // 5xx: server error, retry with backoff
+        if (status && status >= 500 && status < 600) {
+          if (attempt < this.maxRetries) {
+            const delayMs = this.exponentialBackoffMs(attempt);
+            await this.sleep(delayMs);
+            continue;
+          }
+          this.counters?.increment(COUNTER_INDEXER_ERRORS);
+          throw new HttpException(
+            apiError(
+              EErrorCodes.INDEXER_UNAVAILABLE,
+              'Indexer unavailable after retries',
+              { status, details: errorBody },
+            ),
+            HttpStatus.SERVICE_UNAVAILABLE,
+          );
+        }
+
+        // 4xx (not 429): client error, fail immediately
+        if (status && status >= 400 && status < 500) {
+          this.counters?.increment(COUNTER_INDEXER_ERRORS);
+          throw new HttpException(
+            apiError(
+              EErrorCodes.INDEXER_REQUEST_FAILED,
+              'Indexer request failed',
+              { status, details: errorBody },
+            ),
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+
+        // Other error, fail immediately
+        this.counters?.increment(COUNTER_INDEXER_ERRORS);
+        throw new HttpException(
+          apiError(
+            EErrorCodes.INDEXER_REQUEST_FAILED,
+            'Indexer request failed',
+            { details: errorBody },
+          ),
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+    }
+
+    throw new HttpException(
+      apiError(
+        EErrorCodes.INDEXER_REQUEST_FAILED,
+        'Indexer request failed after retries',
+      ),
+      HttpStatus.INTERNAL_SERVER_ERROR,
+    );
+  }
+
+  private isRetryableError(err: unknown): boolean {
+    const status = (err as { response?: { status?: number } }).response?.status;
+    if (!status) return true; // Network error, counts against breaker
+    if (status === 429) return true; // Rate limit, counts against breaker
+    if (status >= 500) return true; // Server error, counts against breaker
+    return false; // 4xx (not 429) does not count against breaker
+  }
+
+  private parseRetryAfter(err: unknown): number | null {
+    const retryAfterHeader = (
+      err as { response?: { headers?: Record<string, string> } }
+    ).response?.headers?.['retry-after'];
+    if (!retryAfterHeader) return null;
+    const parsed = parseInt(retryAfterHeader, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  private exponentialBackoffMs(attempt: number): number {
+    const baseMs = 100;
+    const maxMs = 10_000;
+    const delayMs = baseMs * Math.pow(2, attempt - 1);
+    const jitterMs = Math.random() * delayMs;
+    return Math.min(delayMs + jitterMs, maxMs);
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
