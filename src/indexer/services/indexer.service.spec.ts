@@ -118,7 +118,7 @@ describe('IndexerService', () => {
 
   it('fetches token balance with path params and sends API key', async () => {
     const { service, request } = await build({
-      balance: {
+      tokenBalance: {
         blockchain: 'ethereum',
         token: 'usdt',
         address: '0x1234',
@@ -145,7 +145,7 @@ describe('IndexerService', () => {
 
   it('rejects a balance response with invalid shape', async () => {
     const { service } = await build({
-      balance: {
+      tokenBalance: {
         blockchain: 'ethereum',
         token: 'usdt',
         address: '0x1234',
