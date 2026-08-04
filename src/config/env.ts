@@ -55,6 +55,15 @@ const envSchema = z.object({
   PAYMENT_POLL_PAGE_SIZE: z.coerce.number().int().positive().default(50),
   PAYMENT_POLL_MAX_MERCHANTS: z.coerce.number().int().positive().default(20),
 
+  TX_OBSERVATION_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(2 * 3_600_000),
+  TX_SWEEP_INTERVAL_MS: z.coerce.number().int().default(60_000),
+
+  BALANCE_CACHE_TTL_MS: z.coerce.number().int().positive().default(60_000),
+
   UTL_USD_RATE: z.string().default('1'),
   CASHBACK_BPS: z.coerce.number().int().nonnegative().default(500),
 

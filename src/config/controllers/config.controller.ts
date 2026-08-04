@@ -2,6 +2,9 @@ import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { Env } from '@/config/env';
+import { SECRETS_KDF_FLOOR } from '@/secrets/kdf-floor';
+
+const PAGE_SIZE = 10;
 
 @Controller('config')
 export class ConfigController {
@@ -17,6 +20,8 @@ export class ConfigController {
       confirmationDepths: JSON.parse(
         this.configService.get('CONFIRMATION_DEPTHS'),
       ),
+      secretsKdfFloor: SECRETS_KDF_FLOOR,
+      pageSize: PAGE_SIZE,
     };
   }
 }
