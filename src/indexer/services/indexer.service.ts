@@ -23,6 +23,8 @@ import { CIRCUIT_BREAKER_CONFIG } from '@/indexer/constants/circuit-breaker.cons
 import type {
   ITransfer,
   ITransferQuery,
+  IBalance,
+  ITokenBalanceQuery,
 } from '@/indexer/interfaces/indexer.interface';
 
 const transferSchema = z.object({
@@ -43,6 +45,16 @@ const transferSchema = z.object({
 
 const transfersSchema = z.object({ transfers: z.array(transferSchema) });
 const batchSchema = z.array(transfersSchema);
+
+const balanceSchema = z.object({
+  blockchain: z.string(),
+  token: z.string(),
+  address: z.string(),
+  amount: z.string(),
+  decimals: z.number().int().nonnegative(),
+  lastUpdated: z.number().int().nonnegative(),
+});
+const balanceResponseSchema = z.object({ balance: balanceSchema });
 
 function assertQuery(query: ITransferQuery): ITransferQuery {
   if (!Number.isInteger(query.limit) || query.limit <= 0) {
@@ -109,6 +121,17 @@ export class IndexerService {
       );
     }
     return parsed.map((entry) => entry.transfers);
+  }
+
+  async tokenBalance(
+    query: ITokenBalanceQuery,
+  ): Promise<{ balance: IBalance }> {
+    const { blockchain, token, address } = query;
+    const encodedPath = [blockchain, token, address]
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+    const body = await this.request('GET', `/${encodedPath}/token-balances`);
+    return balanceResponseSchema.parse(body);
   }
 
   getBreakerState(): 'closed' | 'open' | 'half-open' {
