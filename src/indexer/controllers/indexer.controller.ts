@@ -17,7 +17,7 @@ export class IndexerController {
     summary: 'Fetch token transfers for an address',
     description: 'Query WDK indexer for token transfer history',
     responseSchemas: [TokenTransferResponseDto],
-    includeAuth: false,
+    includeAuth: true,
   })
   async getTokenTransfers(
     @Param('blockchain') blockchain: string,
