@@ -12,6 +12,10 @@ const SRC = resolve(__dirname, '../..');
 
 function build(response: unknown) {
   const request = jest.fn(() => of({ data: response }));
+  const configValues: Record<string, unknown> = {
+    INDEXER_BASE_URL: 'https://indexer.test/api/v1/',
+    INDEXER_API_KEY: 'test-key',
+  };
   return Test.createTestingModule({
     providers: [
       IndexerService,
@@ -19,10 +23,7 @@ function build(response: unknown) {
       {
         provide: ConfigService,
         useValue: {
-          get: (key: string) =>
-            key === 'INDEXER_BASE_URL'
-              ? 'https://indexer.test/api/v1/'
-              : 'test-key',
+          get: (key: string) => configValues[key] ?? 'test-key',
         },
       },
     ],
