@@ -49,12 +49,12 @@ const batchSchema = z.array(transfersSchema);
 const balanceSchema = z.object({
   blockchain: z.string(),
   token: z.string(),
-  address: z.string(),
+  address: z.string().optional(),
   amount: z.string(),
-  decimals: z.number().int().nonnegative(),
-  lastUpdated: z.number().int().nonnegative(),
+  decimals: z.number().int().nonnegative().optional(),
+  lastUpdated: z.number().int().nonnegative().optional(),
 });
-const balanceResponseSchema = z.object({ balance: balanceSchema });
+const balanceResponseSchema = z.object({ tokenBalance: balanceSchema });
 
 function assertQuery(query: ITransferQuery): ITransferQuery {
   if (!Number.isInteger(query.limit) || query.limit <= 0) {
@@ -125,12 +125,13 @@ export class IndexerService {
 
   async tokenBalance(
     query: ITokenBalanceQuery,
-  ): Promise<{ balance: IBalance }> {
+  ): Promise<{ tokenBalance: IBalance }> {
     const { blockchain, token, address } = query;
     const encodedPath = [blockchain, token, address]
       .map((segment) => encodeURIComponent(segment))
       .join('/');
     const body = await this.request('GET', `/${encodedPath}/token-balances`);
+    console.log('body', body);
     return balanceResponseSchema.parse(body);
   }
 
