@@ -1,4 +1,5 @@
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
+import { BalanceCache } from '@/balances/entities/balance-cache.entity';
 import { ClaimChallenge } from '@/claims/entities/claim-challenge.entity';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
 import { EventCursorEntity } from '@/common/chain/event-cursor.entity';
@@ -18,6 +19,7 @@ import { Wallet } from '@/wallets/entities/wallet.entity';
 
 export const ENTITIES = [
   AttestationEntity,
+  BalanceCache,
   ClaimChallenge,
   ClaimEntity,
   Coupon,

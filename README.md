@@ -126,17 +126,48 @@ including the endpoints still to be built — is in
 | POST   | `/auth/google`              | Google `idToken` → our JWT pair                             |
 | POST   | `/auth/refresh`             | refresh → new pair                                          |
 | POST   | `/auth/dev/test-token`      | development only, after `npm run seed`                      |
-| GET    | `/users/me`                 | current user                                                |
+| GET    | `/users/me`                 | current user, wallet mapping, which blobs are stored        |
 | POST   | `/wallets`                  | link every address derived from the mnemonic, in one call   |
 | GET    | `/wallets`                  | the user's linked addresses                                 |
+| PUT    | `/secrets/entropy`          | store the encrypted entropy blob (ciphertext only)          |
+| GET    | `/secrets/entropy`          | fetch it back for a restore (5 / hour, access-logged)       |
+| PUT    | `/secrets/seed`             | store the encrypted seed blob (derived cache)               |
+| GET    | `/secrets/seed`             | fetch it back (5 / hour, access-logged)                     |
+| DELETE | `/secrets`                  | remove both blobs and the wrapped key                       |
 | GET    | `/coupons`                  | coupon list; `PENDING` rows carry a live confirmation count |
 | GET    | `/coupons/:id`              | one coupon                                                  |
 | GET    | `/coupons/by-code/:code`    | resolve a manually typed code                               |
 | GET    | `/claims/challenge?coupon=` | nonce + the exact message to sign                           |
 | POST   | `/claims`                   | claim one coupon (`Idempotency-Key` required)               |
+| GET    | `/claims`                   | the user's claims, ten per page                             |
+| GET    | `/claims/preview`           | claimable set, total UTL, cooldown state                    |
 | GET    | `/claims/:id`               | poll status and attestation progress                        |
+| GET    | `/transactions`             | history, ten per page, keyset cursor                        |
+| POST   | `/transactions`             | record what the device just broadcast (`Idempotency-Key`)   |
+| GET    | `/transactions/:id`         | one transaction, polled until it confirms or fails          |
+| GET    | `/balances`                 | cached balances with their age; never a synchronous proxy   |
 | GET    | `/pricing/live`             | live asset price                                            |
 | GET    | `/indexer/token-transfers`  | indexer passthrough (debugging)                             |
+
+### What `/secrets/*` does and does not hold
+
+Ciphertext, and nothing else. Encryption and decryption happen on the device;
+the mnemonic, entropy, seed, passphrase and encryption key never reach this
+process. Two blobs, because WDK produces two: `entropy` is the source of truth,
+`seed` is a derived cache that can be recomputed. Both are AES-256-GCM under one
+key, and that key is stored **wrapped** under an Argon2id KEK derived from the
+user's passphrase.
+
+The server cannot check that the passphrase was strong. It checks that the
+derivation was: a wrapped key below the floor in `GET /config`
+(`argon2id`, `m ≥ 65536`, `t ≥ 3`, `p ≥ 1`) is refused with `WEAK_KDF_PARAMS`.
+Blobs are size-capped by the format, `metadata.address` must be the user's
+primary EVM wallet, reads are rate-limited to 5 per hour and every read is
+logged whether or not it hit — a run of misses is the shape worth alerting on.
+
+Storing a seed server-side is a client requirement, not a recommendation: the
+KDF and the passphrase behind it are the only thing between a stolen database
+and every user's funds.
 
 ### Where the signature happens
 

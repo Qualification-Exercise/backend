@@ -10,8 +10,11 @@
 -- ── API ────────────────────────────────────────────────────────────────────
 -- Serves the app. Creates claims, never attests and never submits.
 CREATE ROLE api LOGIN;
-GRANT SELECT, INSERT, UPDATE ON users, wallets, wallet_challenges, wallet_secrets,
-  transactions, coupons, claims, idempotency_keys TO api;
+GRANT SELECT, INSERT, UPDATE ON users, wallets, claim_challenges, wallet_secrets,
+  transactions, coupons, claims, idempotency_keys, balance_cache TO api;
+-- DELETE /secrets removes the row outright: a soft-deleted seed backup is a
+-- seed backup. Nothing else the API touches may be deleted.
+GRANT DELETE ON wallet_secrets TO api;
 GRANT SELECT ON payments, price_snapshots, merchants, settlements, signers,
   attestations TO api;
 REVOKE INSERT, UPDATE, DELETE ON attestations, settlements, signers FROM api;

@@ -17,6 +17,7 @@ import {
 } from '@/auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
 import { CreateClaimDTO } from '@/claims/dtos/create-claim.dto';
+import { ListClaimsDTO } from '@/claims/dtos/list-claims.dto';
 import { ClaimsService } from '@/claims/services/claims.service';
 
 @Controller('claims')
@@ -32,6 +33,17 @@ export class ClaimsController {
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     return this.claimsService.create(user.userId, dto, idempotencyKey);
+  }
+
+  @Get()
+  list(@CurrentUser() user: IAuthUser, @Query() query: ListClaimsDTO) {
+    return this.claimsService.list(user.userId, query);
+  }
+
+  // Declared before `:id` so "preview" is a route, not a claim id.
+  @Get('preview')
+  preview(@CurrentUser() user: IAuthUser) {
+    return this.claimsService.preview(user.userId);
   }
 
   @Get('challenge')

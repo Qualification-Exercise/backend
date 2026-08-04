@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import type { Env } from '@/config/env';
+import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
 import {
   AccrualInputError,
   accrualAmount,
@@ -47,6 +48,7 @@ export class AccrualService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(PriceSnapshot)
     private readonly snapshots: Repository<PriceSnapshot>,
     configService: ConfigService<Env, true>,
+    private readonly alertService: AlertService,
   ) {
     this.intervalMs = configService.get('ACCRUAL_POLL_INTERVAL_MS');
     this.batchSize = configService.get('ACCRUAL_BATCH_SIZE');
@@ -140,6 +142,18 @@ export class AccrualService implements OnModuleInit, OnModuleDestroy {
         `security_event=coupon.orphaned_after_claim couponId=${coupon.id} ` +
           `paymentRef=${coupon.paymentRef} amount=${coupon.amount}`,
       );
+      await this.alertService.raise({
+        code: 'payment.orphaned_after_claim',
+        severity: EAlertSeverity.CRITICAL,
+        subject: 'Clawback required: claimed coupon backing payment orphaned',
+        message: `Coupon ${coupon.id} (${coupon.amount} ${coupon.asset}) was claimed but backing payment ${coupon.paymentRef} became orphaned. On-chain clawback required.`,
+        context: {
+          couponId: coupon.id,
+          paymentRef: coupon.paymentRef,
+          amount: coupon.amount,
+          asset: coupon.asset,
+        },
+      });
     }
   }
 
