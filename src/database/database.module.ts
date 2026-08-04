@@ -23,7 +23,6 @@ import { migrations } from './migrations';
         migrationsTransactionMode: 'all',
         // ponytail: single-instance assumption — two replicas booting together
         // race on the migrations table. Move to a release-phase step if we scale out.
-        migrationsRun: true,
       }),
     }),
   ],

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from '@/config/env';
 import { DatabaseModule } from '@/database/database.module';
 import { UsersModule } from '@/users/users.module';
@@ -24,6 +25,12 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
       validate: validateEnv,
       envFilePath: '.env',
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 3600000,
+        limit: 10,
+      },
+    ]),
     DatabaseModule,
     AuthModule,
     UsersModule,
