@@ -116,6 +116,54 @@ describe('IndexerService', () => {
     ).rejects.toThrow(/2 queries/);
   });
 
+  it('fetches token balance with path params and sends API key', async () => {
+    const { service, request } = await build({
+      balance: {
+        blockchain: 'ethereum',
+        token: 'usdt',
+        address: '0x1234',
+        amount: '1000000000',
+        decimals: 6,
+        lastUpdated: 1780272000,
+      },
+    });
+
+    await service.tokenBalance({
+      blockchain: 'ethereum',
+      token: 'usdt',
+      address: '0x1234',
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        url: 'https://indexer.test/api/v1/ethereum/usdt/0x1234/token-balances',
+        headers: { 'x-api-key': 'test-key' },
+      }),
+    );
+  });
+
+  it('rejects a balance response with invalid shape', async () => {
+    const { service } = await build({
+      balance: {
+        blockchain: 'ethereum',
+        token: 'usdt',
+        address: '0x1234',
+        amount: '1000000000',
+        decimals: 'not-a-number',
+        lastUpdated: 1780272000,
+      },
+    });
+
+    await expect(
+      service.tokenBalance({
+        blockchain: 'ethereum',
+        token: 'usdt',
+        address: '0x1234',
+      }),
+    ).rejects.toThrow();
+  });
+
   it('is the only place in src/ that builds an indexer request', () => {
     // BE-07 acceptance criterion, kept honest by the build rather than by review.
     const hits = execSync(

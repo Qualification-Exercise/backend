@@ -22,3 +22,18 @@ export interface ITransferQuery {
   fromTs?: number;
   toTs?: number;
 }
+
+export interface IBalance {
+  blockchain: string;
+  token: string;
+  address: string;
+  amount: string;
+  decimals: number;
+  lastUpdated: number;
+}
+
+export interface ITokenBalanceQuery {
+  blockchain: string;
+  token: string;
+  address: string;
+}

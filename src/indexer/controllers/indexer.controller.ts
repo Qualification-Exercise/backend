@@ -3,9 +3,13 @@ import { Throttle } from '@nestjs/throttler';
 
 import { ApiEndpoint } from '@/common/decorators/api-endpoint.decorator';
 import { IndexerService } from '@/indexer/services/indexer.service';
-import type { ITransfer } from '@/indexer/interfaces/indexer.interface';
+import type {
+  ITransfer,
+  IBalance,
+} from '@/indexer/interfaces/indexer.interface';
 import { GetTokenTransfersDto } from '@/indexer/dtos/get-token-transfers.dto';
 import { TokenTransferResponseDto } from '@/indexer/dtos/token-transfer.response.dto';
+import { TokenBalanceResponseDto } from '@/indexer/dtos/token-balance.response.dto';
 
 @Controller('indexer')
 export class IndexerController {
@@ -32,6 +36,26 @@ export class IndexerController {
       limit: parseInt(query.limit, 10),
       fromTs: query.fromTs ? parseInt(query.fromTs, 10) : undefined,
       toTs: query.toTs ? parseInt(query.toTs, 10) : undefined,
+    });
+  }
+
+  @Get(':blockchain/:token/:address/token-balances')
+  @Throttle({ default: { limit: 8, ttl: 10000 } })
+  @ApiEndpoint({
+    summary: 'Get current token balance for an address',
+    description: 'Query WDK indexer for current token balance',
+    responseSchemas: [TokenBalanceResponseDto],
+    includeAuth: true,
+  })
+  async getTokenBalance(
+    @Param('blockchain') blockchain: string,
+    @Param('token') token: string,
+    @Param('address') address: string,
+  ): Promise<{ balance: IBalance }> {
+    return this.indexerService.tokenBalance({
+      blockchain,
+      token,
+      address,
     });
   }
 }
