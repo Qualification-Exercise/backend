@@ -131,7 +131,6 @@ export class IndexerService {
       .map((segment) => encodeURIComponent(segment))
       .join('/');
     const body = await this.request('GET', `/${encodedPath}/token-balances`);
-    console.log('body', body);
     return balanceResponseSchema.parse(body);
   }
 

@@ -26,10 +26,10 @@ export interface ITransferQuery {
 export interface IBalance {
   blockchain: string;
   token: string;
-  address: string;
+  address?: string;
   amount: string;
-  decimals: number;
-  lastUpdated: number;
+  decimals?: number;
+  lastUpdated?: number;
 }
 
 export interface ITokenBalanceQuery {
