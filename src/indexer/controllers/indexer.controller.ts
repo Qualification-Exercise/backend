@@ -40,7 +40,7 @@ export class IndexerController {
   }
 
   @Get(':blockchain/:token/:address/token-balances')
-  @Throttle({ default: { limit: 8, ttl: 10000 } })
+  @Throttle({ default: { limit: 4, ttl: 10000 } })
   @ApiEndpoint({
     summary: 'Get current token balance for an address',
     description: 'Query WDK indexer for current token balance',
