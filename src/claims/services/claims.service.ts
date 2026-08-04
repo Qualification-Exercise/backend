@@ -20,6 +20,7 @@ import { ClaimChallenge } from '@/claims/entities/claim-challenge.entity';
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
 import type { CreateClaimDTO } from '@/claims/dtos/create-claim.dto';
+import type { ListClaimsDTO } from '@/claims/dtos/list-claims.dto';
 import {
   EClaimFailureReason,
   EClaimStatus,
@@ -41,6 +42,29 @@ import { SettlementEntity } from '@/settlements/entities/settlement.entity';
 const PG_UNIQUE_VIOLATION = '23505';
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
+
+/** Same page size as every other list route, so the client has one rule. */
+const CLAIM_PAGE_SIZE = 10;
+
+function encodeClaimCursor(claim: ClaimEntity): string {
+  return Buffer.from(
+    JSON.stringify({ at: claim.createdAt.toISOString(), id: claim.id }),
+  ).toString('base64url');
+}
+
+function decodeClaimCursor(cursor: string): { at: string; id: string } {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+    if (typeof parsed?.at !== 'string' || typeof parsed?.id !== 'string') {
+      throw new Error('bad shape');
+    }
+    return parsed;
+  } catch {
+    throw new BadRequestException(
+      apiError(EErrorCodes.INVALID_CURSOR, 'Cursor is not one we issued'),
+    );
+  }
+}
 
 export interface IClaimChallengeResponse {
   challengeId: string;
@@ -70,6 +94,13 @@ export interface IClaimResponse {
   failureReason: EClaimFailureReason | null;
   failureDetail: string | null;
   updatedAt: string;
+}
+
+export interface IClaimPreviewResponse {
+  claimable: { id: string; code: string | null; utlAmount: string }[];
+  totalUtl: string;
+  chainId: number;
+  cooldown: { active: boolean; nextClaimAt: string | null };
 }
 
 interface ICouponRow {
@@ -293,7 +324,24 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     em: EntityManager,
     userId: string,
   ): Promise<void> {
-    if (this.cooldownHours <= 0) return;
+    const nextAt = await this.nextClaimAt(em, userId);
+    if (!nextAt) return;
+
+    throw new HttpException(
+      apiError(
+        EErrorCodes.CLAIM_COOLDOWN,
+        `One claim per ${this.cooldownHours} h`,
+        { nextClaimAt: nextAt.toISOString() },
+      ),
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+
+  private async nextClaimAt(
+    em: EntityManager,
+    userId: string,
+  ): Promise<Date | null> {
+    if (this.cooldownHours <= 0) return null;
 
     const [row] = (await em.query(
       `SELECT c.created_at AS at
@@ -304,21 +352,12 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
         LIMIT 1`,
       [userId, EClaimStatus.FAILED],
     )) as { at: Date }[];
-    if (!row) return;
+    if (!row) return null;
 
     const nextAt = new Date(
       new Date(row.at).getTime() + this.cooldownHours * 3_600_000,
     );
-    if (nextAt.getTime() <= Date.now()) return;
-
-    throw new HttpException(
-      apiError(
-        EErrorCodes.CLAIM_COOLDOWN,
-        `One claim per ${this.cooldownHours} h`,
-        { nextClaimAt: nextAt.toISOString() },
-      ),
-      HttpStatus.TOO_MANY_REQUESTS,
-    );
+    return nextAt.getTime() > Date.now() ? nextAt : null;
   }
 
   private async resolveCoupon(
@@ -435,6 +474,92 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
       failureReason: claim.failureReason,
       failureDetail: claim.failureDetail,
       updatedAt: claim.updatedAt.toISOString(),
+    };
+  }
+
+  async preview(userId: string): Promise<IClaimPreviewResponse> {
+    const em = this.claims.manager;
+
+    const claimable = (await em.query(
+      `SELECT id::text AS id, code, amount::text AS amount
+         FROM coupons
+        WHERE "userId" = $1 AND status = $2
+          AND ("expiresAt" IS NULL OR "expiresAt" > now())
+        ORDER BY "createdAt" DESC`,
+      [userId, ECouponStatus.ISSUED],
+    )) as { id: string; code: string | null; amount: string }[];
+
+    const totalUtl = claimable.reduce(
+      (sum, coupon) => sum + BigInt(coupon.amount),
+      0n,
+    );
+    const nextAt = await this.nextClaimAt(em, userId);
+
+    return {
+      claimable: claimable.map((coupon) => ({
+        id: coupon.id,
+        code: coupon.code,
+        utlAmount: coupon.amount,
+      })),
+      totalUtl: totalUtl.toString(),
+      chainId: this.chainId,
+      cooldown: {
+        active: nextAt !== null,
+        nextClaimAt: nextAt?.toISOString() ?? null,
+      },
+    };
+  }
+
+  async list(userId: string, query: ListClaimsDTO) {
+    const limit = Math.min(query.limit ?? CLAIM_PAGE_SIZE, CLAIM_PAGE_SIZE);
+    const after = query.cursor ? decodeClaimCursor(query.cursor) : null;
+
+    const qb = this.claims
+      .createQueryBuilder('claim')
+      .innerJoinAndSelect('claim.coupon', 'coupon')
+      .where('coupon."userId" = :userId', { userId })
+      .orderBy('claim.created_at', 'DESC')
+      .addOrderBy('claim.id', 'DESC')
+      .take(limit + 1);
+
+    if (after) {
+      qb.andWhere('(claim.created_at, claim.id) < (:at, :id)', after);
+    }
+
+    const rows = await qb.getMany();
+    const page = rows.slice(0, limit);
+
+    const counts = new Map<string, number>();
+    if (page.length > 0) {
+      const grouped = (await this.attestations
+        .createQueryBuilder('a')
+        .select('a.claimId', 'claimId')
+        .addSelect('COUNT(*)', 'count')
+        .where('a.claimId IN (:...ids)', { ids: page.map((c) => c.id) })
+        .groupBy('a.claimId')
+        .getRawMany()) as { claimId: string; count: string }[];
+      for (const row of grouped) counts.set(row.claimId, Number(row.count));
+    }
+
+    return {
+      items: page.map((claim) => ({
+        claimId: claim.id,
+        couponId: claim.couponId,
+        status: claim.status,
+        chainId: Number(claim.chainId),
+        txHash: claim.txHash,
+        paymentRef: claim.coupon.paymentRef,
+        amount: claim.amount,
+        attestations: {
+          have: counts.get(claim.id) ?? 0,
+          need: this.threshold,
+        },
+        failureReason: claim.failureReason,
+        failureDetail: claim.failureDetail,
+        updatedAt: claim.updatedAt.toISOString(),
+      })),
+      nextCursor:
+        rows.length > limit ? encodeClaimCursor(page[page.length - 1]) : null,
     };
   }
 
