@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { AlertService } from '@/common/alerts/alert.service';
 import { Coupon } from '@/coupons/entities/coupon.entity';
 import { AccrualService } from '@/coupons/services/accrual.service';
 import { Payment } from '@/payments/entities/payment.entity';
@@ -104,6 +105,7 @@ async function build(options: {
   coupons?: ReturnType<typeof couponRepo>;
   utlUsdRate?: string;
   cashbackBps?: number;
+  alertService?: Partial<AlertService>;
 }) {
   const coupons = options.coupons ?? couponRepo();
   const snapshots = options.snapshots ?? [snapshot()];
@@ -144,6 +146,10 @@ async function build(options: {
               CASHBACK_BPS: options.cashbackBps ?? 500,
             })[key],
         },
+      },
+      {
+        provide: AlertService,
+        useValue: options.alertService ?? { raise: jest.fn() },
       },
     ],
   }).compile();
@@ -252,9 +258,14 @@ describe('AccrualService', () => {
         code: 'AAAA-BBBB-CCCC-DDDD',
         status: 'CLAIMED',
         amount: '499955000000000',
+        asset: 'USDT',
       },
     ]);
-    const { service } = await build({ coupons });
+    const mockAlert = jest.fn();
+    const { service } = await build({
+      coupons,
+      alertService: { raise: mockAlert },
+    });
     const logged: string[] = [];
     jest
       .spyOn(service['logger'], 'error')
@@ -266,6 +277,13 @@ describe('AccrualService', () => {
     expect(coupons.rows[0].status).toBe('CLAIMED');
     expect(logged.join()).toContain(
       'security_event=coupon.orphaned_after_claim',
+    );
+    expect(mockAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'payment.orphaned_after_claim',
+        severity: 'critical',
+        context: expect.objectContaining({ couponId: 'c-paid' }),
+      }),
     );
   });
 });
