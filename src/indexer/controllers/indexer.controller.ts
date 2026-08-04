@@ -51,7 +51,7 @@ export class IndexerController {
     @Param('blockchain') blockchain: string,
     @Param('token') token: string,
     @Param('address') address: string,
-  ): Promise<{ balance: IBalance }> {
+  ): Promise<{ tokenBalance: IBalance }> {
     return this.indexerService.tokenBalance({
       blockchain,
       token,
