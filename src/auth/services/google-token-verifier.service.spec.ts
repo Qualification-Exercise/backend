@@ -211,6 +211,42 @@ describe('GoogleTokenVerifierService', () => {
       return module.get(GoogleTokenVerifierService);
     };
 
+    it('accepts an iOS login whose token was minted for the web client id', async () => {
+      const service = await buildWith('test-web-client-id');
+      const verifyIdToken = jest.fn().mockResolvedValue({
+        getPayload: () => ({
+          sub: 'google-123',
+          email: 'user@google.com',
+          email_verified: true,
+        }),
+      });
+      (service as any).clientConfigs[EClientType.IOS].client.verifyIdToken =
+        verifyIdToken;
+
+      await expect(
+        service.verifyIdTokenForProfile('token', EClientType.IOS),
+      ).resolves.toMatchObject({ sub: 'google-123' });
+
+      expect(verifyIdToken).toHaveBeenCalledWith({
+        idToken: 'token',
+        audience: [
+          'test-ios-client-id',
+          'test-android-client-id',
+          'test-web-client-id',
+        ],
+      });
+    });
+
+    it('never accepts an audience outside this project', async () => {
+      const service = await buildWith(undefined);
+
+      // Whatever the client claims, the accepted set is only our own ids.
+      expect((service as any).audiences).toEqual([
+        'test-ios-client-id',
+        'test-android-client-id',
+      ]);
+    });
+
     it('verifies web tokens against the configured web client id', async () => {
       const web = await buildWith('test-web-client-id');
       const verifyIdToken = jest.fn().mockResolvedValue({
@@ -226,10 +262,9 @@ describe('GoogleTokenVerifierService', () => {
       await expect(
         web.verifyIdTokenForProfile('token', EClientType.WEB),
       ).resolves.toMatchObject({ sub: 'google-123' });
-      // The audience is what binds the token to this application.
       expect(verifyIdToken).toHaveBeenCalledWith({
         idToken: 'token',
-        audience: 'test-web-client-id',
+        audience: expect.arrayContaining(['test-web-client-id']),
       });
     });
 
