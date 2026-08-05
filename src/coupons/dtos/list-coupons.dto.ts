@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
@@ -13,10 +14,20 @@ export const COUPON_STATUSES = [
 ] as const;
 
 export class ListCouponsDTO {
+  @ApiPropertyOptional({
+    description: 'Filter by coupon status',
+    enum: COUPON_STATUSES as unknown as string[],
+  })
   @IsOptional()
   @IsIn(COUPON_STATUSES as unknown as string[])
   status?: string;
 
+  @ApiPropertyOptional({
+    description: 'Page size (1-100)',
+    minimum: 1,
+    maximum: 100,
+    example: 10,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -24,6 +35,7 @@ export class ListCouponsDTO {
   @Max(100)
   limit?: number;
 
+  @ApiPropertyOptional({ description: 'Cursor returned by the previous page' })
   @IsOptional()
   @IsString()
   cursor?: string;

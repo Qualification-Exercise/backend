@@ -45,7 +45,7 @@ async function bootstrap() {
   await app.listen(port);
 
   _logger.info(`Application is running on: http://localhost:${port}`);
-  _logger.info(`Swagger docs available at: http://localhost:${port}/api`);
+  _logger.info(`Swagger docs available at: http://localhost:${port}/docs`);
 }
 
 bootstrap().catch((err) => {
