@@ -147,7 +147,8 @@ including the endpoints still to be built — is in
 | GET    | `/transactions/:id`         | one transaction, polled until it confirms or fails          |
 | GET    | `/balances`                 | cached balances with their age; never a synchronous proxy   |
 | GET    | `/pricing/live`             | live asset price                                            |
-| GET    | `/indexer/token-transfers`  | indexer passthrough (debugging)                             |
+| GET    | `/indexer/:blockchain/:token/:address/token-transfers` | indexer passthrough (debugging)  |
+| GET    | `/indexer/:blockchain/:token/:address/token-balances`  | indexer passthrough (debugging)  |
 
 ### What `/secrets/*` does and does not hold
 
@@ -197,18 +198,19 @@ variable is documented there and mirrored in `.env.example`.
 
 | Group             | Keys                                                                                                                          |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Runtime           | `NODE_ENV`, `PORT`, `CORS_ORIGINS`, `LOG_LEVEL`                                                                               |
+| Runtime           | `NODE_ENV`, `PORT`, `APP_NAME`, `CORS_ORIGINS`, `LOG_LEVEL`                                                                   |
 | Database / Redis  | `DB_*`, `REDIS_*`                                                                                                             |
-| Auth              | `JWT_SECRET`, `JWT_EXPIRATION`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `JWKS_URI`, `GOOGLE_*_CLIENT_ID`                              |
+| Auth              | `AUTH_PROVIDER`, `JWT_SECRET`, `JWT_EXPIRATION`, `REFRESH_TOKEN_EXPIRATION`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `JWKS_URI`, `GOOGLE_*_CLIENT_ID` |
 | Indexer           | `INDEXER_BASE_URL`, `INDEXER_API_KEY`, `PAYMENT_POLL_*`                                                                       |
 | Money             | `CASHBACK_BPS` (500 = 5 %), `UTL_USD_RATE`, `PRICING_*`, `ACCRUAL_*`                                                          |
-| Chains            | `CONFIRMATION_DEPTHS`, `RPC_URLS`, `TOKEN_ADDRESSES`, `REWARD_CHAIN_ID`                                                       |
-| Contracts         | `COUPON_CLAIM_CONTRACT_ADDRESS`, `UTILITY_TOKEN_CONTRACT_ADDRESS`                                                             |
+| Chains            | `SUPPORTED_CHAINS`, `SUPPORTED_ASSETS`, `CONFIRMATION_DEPTHS`, `RPC_URLS`, `RPC_SHARING_ALLOWED_CHAINS`, `TOKEN_ADDRESSES`, `REWARD_CHAIN_ID` |
+| Contracts         | `COUPON_CLAIM_CONTRACT_ADDRESS`, `UTILITY_TOKEN_CONTRACT_ADDRESS`, `UTILITY_TOKEN_CONTRACT_ABI`                               |
+| Transactions      | `TX_OBSERVATION_TIMEOUT_MS`, `TX_SWEEP_INTERVAL_MS`, `BALANCE_CACHE_TTL_MS`                                                   |
 | Claims            | `ATTESTATION_THRESHOLD`, `CLAIM_COOLDOWN_HOURS`, `CLAIM_DEADLINE_SECONDS`, `CLAIM_SWEEP_INTERVAL_MS`                          |
 | Issuer            | `ISSUER_ID`, `ISSUER_RPC_URLS`, `ISSUER_SIGNING_KEY`, `ISSUER_PRICE_PROVIDER`, `PRICE_TOLERANCE_BPS`, `PRICE_WINDOW_SECONDS`  |
 | Relayer           | `RELAYER_RPC_URLS`, `RELAYER_SIGNING_KEY`, `RELAYER_CONFIRMATIONS`, `RELAYER_MAX_FEE_GWEI`, `RELAYER_DEADLINE_MARGIN_SECONDS` |
 | Watcher / monitor | `SETTLEMENT_*`, `MONITOR_*`, `ALERT_WEBHOOK_URL`, `ALERT_TELEGRAM_CHAT_ID`                                                    |
-| Keys              | `SIGNER_KEY_PASSWORD`                                                                                                         |
+| Keys              | `SIGNER_KEY_PASSWORD`, `SEED_BACKUP_ENCRYPTION_KEY` (required at startup but read by nothing — see below)                     |
 
 Two rules the code enforces at startup rather than in review:
 
@@ -218,6 +220,9 @@ Two rules the code enforces at startup rather than in review:
   wrong node.
 - **No two processes may share an RPC endpoint.** Two verifiers behind one
   provider are one verifier wearing two hats, so the process refuses to start.
+  `RPC_SHARING_ALLOWED_CHAINS` (empty by default) lists the chains where that is
+  waived — Tron and Bitcoin have effectively one free public API each, so a demo
+  lists them rather than pretending the guarantee holds.
 
 ### Keys
 
@@ -236,6 +241,11 @@ insecure deployment look secure. Signing goes through
 
 The `signers` table holds **addresses only** (issuer, relayer, guardian), and
 each process refuses to start unless its own address is an active row there.
+
+`SEED_BACKUP_ENCRYPTION_KEY` is a leftover from an earlier design where the
+server encrypted the seed backup itself. Nothing reads it — `/secrets/*` takes
+ciphertext only — but the Zod schema still requires it, so a boot fails without
+it. Drop it from the schema and from `.env.example` together.
 
 ---
 
@@ -260,8 +270,20 @@ npm run migration:revert
 npm run seed
 ```
 
-Migrations run at startup (`migrationsRun: true`) — a single-instance assumption:
-two replicas booting together race on the migrations table.
+Migrations run at startup (`migrationsRun: true` in `database.module.ts`) — a
+single-instance assumption: two replicas booting together race on the migrations
+table.
+
+That is also how a deployed instance gets its **signers**. The production image
+is `dist/main.js` on `npm ci --omit=dev`, with no `ts-node` and no `src/` on
+disk, so neither `npm run seed` nor `npm run migration:run` can be executed
+inside it. Signers are reference data, not test data — the relayer checks an
+attestation's author against that table before spending gas — so they live in
+the `SeedSigners` migration instead. `npm run seed` stays a local dev tool: its
+test user is behind `NODE_ENV === 'development'` and never exists in production.
+
+`NODE_ENV` accepts exactly `development`, `production` or `test`; anything else
+fails the Zod schema at startup.
 
 ---
 
@@ -272,8 +294,9 @@ npm test
 npm run test:cov
 ```
 
-303 tests, ~67 % statement coverage. The threshold in `jest.config.js` is still
-the scaffold-era 20 % and should be raised as the remaining endpoints land.
+324 tests across 36 suites, ~58 % statement coverage. The threshold in
+`jest.config.js` is still the scaffold-era 20 % and should be raised as the
+untested services (transactions, balances) get covered.
 
 Three kinds of test matter more than the count:
 
@@ -312,20 +335,14 @@ pipeline cannot reach the branch Dokploy pulls from.
 
 From the endpoint contract in the plan docs:
 
-- **Secrets / seed backup**: `PUT|GET /secrets/entropy`, `PUT|GET /secrets/seed`,
-  `DELETE /secrets`. The `wallet_secrets` table exists and matches the WDK
-  ciphertext format; the routes, the Argon2id-wrapped key upload and the KDF
-  floor in `GET /config` do not.
-- **Transactions and balances**: `GET|POST /transactions`,
-  `GET /transactions/:id`, `GET /balances`. The table matches the documented
-  shape; the service is empty.
-- **Claims**: `GET /claims` (list) and `GET /claims/preview` (claimable set and
-  cooldown state).
 - **`POST /auth/session` / `GET /me`** as named in the reference — the same
   ground is covered today by `/auth/google` and `/users/me`.
-- Rate limiting on sensitive routes, helmet, request correlation ids.
-- Coverage to the 90 % the exercise asks for, and integration tests for the raw
-  SQL paths (coupon list, idempotency) that unit tests cannot reach.
+- Helmet and request correlation ids. Rate limiting is in place (`ThrottlerModule`
+  globally, per-route `@Throttle` on `/secrets/*` and `/transactions`).
+- Coverage to the 90 % the exercise asks for. `transactions.service.ts` and the
+  balances service are shipped but have no unit tests at all, and there are no
+  integration tests for the raw SQL paths (coupon list, idempotency) that unit
+  tests cannot reach.
 - Non-EVM verification: Bitcoin, Tron and Spark payments are ingested, but no
   issuer can verify them without a node of that kind, so they are refused rather
   than guessed at.
