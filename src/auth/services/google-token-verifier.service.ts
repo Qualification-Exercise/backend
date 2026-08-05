@@ -29,10 +29,23 @@ interface ClientConfig {
   client: OAuth2Client;
 }
 
+function audienceOf(idToken: string): string {
+  try {
+    const [, payload] = idToken.split('.');
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as {
+      aud?: string;
+    };
+    return claims.aud ?? 'none';
+  } catch {
+    return 'unparseable';
+  }
+}
+
 @Injectable()
 export class GoogleTokenVerifierService {
   private readonly logger = new Logger(GoogleTokenVerifierService.name);
   private readonly clientConfigs: Partial<Record<EClientType, ClientConfig>>;
+  private readonly audiences: string[];
 
   constructor(configService: ConfigService<Env>) {
     const webClientId = configService.get('GOOGLE_WEB_CLIENT_ID');
@@ -56,6 +69,10 @@ export class GoogleTokenVerifierService {
         client: new OAuth2Client(webClientId),
       };
     }
+
+    this.audiences = Object.values(this.clientConfigs)
+      .map((config) => config.id)
+      .filter(Boolean);
   }
 
   private getConfigForType(type: EClientType): ClientConfig {
@@ -81,7 +98,7 @@ export class GoogleTokenVerifierService {
     try {
       ticket = await config.client.verifyIdToken({
         idToken,
-        audience: config.id,
+        audience: this.audiences,
       });
     } catch (err) {
       if (isNetworkError(err)) {
@@ -95,7 +112,12 @@ export class GoogleTokenVerifierService {
           ),
         );
       }
-      this.logger.warn(`Invalid Google ID token for type=${type}`);
+
+      this.logger.warn(
+        `Invalid Google ID token: type=${type} ` +
+          `aud=${audienceOf(idToken)} accepted=[${this.audiences.join(', ')}] ` +
+          `reason=${(err as Error).message}`,
+      );
       throw new UnauthorizedException(
         apiError(
           EErrorCodes.INVALID_GOOGLE_TOKEN,
