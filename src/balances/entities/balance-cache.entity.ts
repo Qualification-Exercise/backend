@@ -2,10 +2,13 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  ManyToOne,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { User } from '@/users/entities/user.entity';
 
 /**
  * Our copy of what the indexer last said a user's address holds.
@@ -46,4 +49,7 @@ export class BalanceCache {
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  user: User;
 }
