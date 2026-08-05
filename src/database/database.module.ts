@@ -20,6 +20,7 @@ import { migrations } from './migrations';
         synchronize: false,
         logging: configService.get('NODE_ENV') === 'development',
         migrations,
+        migrationsRun: true,
         migrationsTransactionMode: 'all',
         // ponytail: single-instance assumption — two replicas booting together
         // race on the migrations table. Move to a release-phase step if we scale out.
