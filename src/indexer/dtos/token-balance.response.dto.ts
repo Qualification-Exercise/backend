@@ -38,3 +38,8 @@ export class TokenBalanceResponseDto {
   })
   lastUpdated: number;
 }
+
+export class TokenBalanceWrapperResponseDto {
+  @ApiProperty({ type: TokenBalanceResponseDto })
+  tokenBalance: TokenBalanceResponseDto;
+}

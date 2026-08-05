@@ -70,7 +70,7 @@ npm run dev
 ```
 
 - API: `http://localhost:3000/api`
-- Swagger: `http://localhost:3000/api`
+- Swagger UI: `http://localhost:3000/docs` (OpenAPI JSON: `/docs/json`)
 - Health: `http://localhost:3000/health` — deliberately **outside** the `/api`
   prefix, because that is where load balancers and container health checks look
 
