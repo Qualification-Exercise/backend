@@ -82,3 +82,8 @@ export class TokenTransferResponseDto {
   })
   metadata?: unknown | null;
 }
+
+export class TokenTransfersResponseDto {
+  @ApiProperty({ type: [TokenTransferResponseDto] })
+  transfers: TokenTransferResponseDto[];
+}

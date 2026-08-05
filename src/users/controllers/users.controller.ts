@@ -7,7 +7,9 @@ import { SecretsService } from '@/secrets/services/secrets.service';
 import { WalletsService } from '@/wallets/services/wallets.service';
 import { UsersService } from '../services/users.service';
 import { ApiEndpoint } from '@/common/decorators/api-endpoint.decorator';
+import { ApiTags } from '@nestjs/swagger';
 
+@ApiTags('users')
 @Controller('users')
 export class UsersController {
   constructor(
