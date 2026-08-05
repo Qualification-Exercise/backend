@@ -294,9 +294,18 @@ npm test
 npm run test:cov
 ```
 
-324 tests across 36 suites, ~58 % statement coverage. The threshold in
-`jest.config.js` is still the scaffold-era 20 % and should be raised as the
-untested services (transactions, balances) get covered.
+590 tests across 54 suites: **94 % of statements, 95 % of lines, 95 % of
+functions, 85 % of branches.** `jest.config.js` gates the build just under
+those numbers, so coverage cannot be given back by accident.
+
+Branches sit lower than the rest on purpose. What is left is mostly
+chain-error handling — an RPC that answers with the wrong shape, a provider
+that times out mid-retry — where a faithful test needs a real node rather than
+another mock asserting the mock was called.
+
+Migrations, `seed.ts` and the per-process `main.ts` entrypoints are excluded
+from the measurement: they are DDL and wiring, checked by running them (see the
+migration drift check above) rather than by restating them in Jest.
 
 Three kinds of test matter more than the count:
 
@@ -339,10 +348,9 @@ From the endpoint contract in the plan docs:
   ground is covered today by `/auth/google` and `/users/me`.
 - Helmet and request correlation ids. Rate limiting is in place (`ThrottlerModule`
   globally, per-route `@Throttle` on `/secrets/*` and `/transactions`).
-- Coverage to the 90 % the exercise asks for. `transactions.service.ts` and the
-  balances service are shipped but have no unit tests at all, and there are no
-  integration tests for the raw SQL paths (coupon list, idempotency) that unit
-  tests cannot reach.
+- Integration tests for the raw SQL paths — the coupon list `UNION ALL`, the
+  idempotency `ON CONFLICT` claim — which unit tests reach only through a mocked
+  `query()` and so prove nothing about the SQL itself.
 - Non-EVM verification: Bitcoin, Tron and Spark payments are ingested, but no
   issuer can verify them without a node of that kind, so they are refused rather
   than guessed at.

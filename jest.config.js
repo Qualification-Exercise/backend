@@ -12,9 +12,12 @@ module.exports = {
     '**/*.(t|j)s',
     '!**/*.entity.ts',
     '!**/*.module.ts',
-    '!src/main.ts',
+    '!**/main.ts',
+    '!**/migrations/**',
+    '!database/seed.ts',
   ],
   coverageDirectory: '../coverage',
+  coverageReporters: ['clover', 'json', 'json-summary', 'lcov', 'text'],
   testEnvironment: 'node',
   roots: ['<rootDir>', '<rootDir>/../test'],
   moduleNameMapper: {
@@ -22,10 +25,10 @@ module.exports = {
   },
   coverageThreshold: {
     global: {
-      branches: 20,
-      functions: 20,
-      lines: 20,
-      statements: 20,
+      branches: 84,
+      functions: 90,
+      lines: 90,
+      statements: 90,
     },
   },
 };
