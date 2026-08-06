@@ -111,6 +111,31 @@ npm run monitor:pause-drill -- --check     # can the guardian actually pause?
 `.env.issuer.example`, `.env.relayer.example`, `.env.settlement.example` and
 `.env.monitor.example` document what each process needs.
 
+### In production: one image, five deployments
+
+Those `npm run` scripts are ts-node over `src/`, and the production image has
+neither — `nest build` is a webpack bundle with a single entry, and
+`npm ci --omit=dev` drops ts-node. So `src/main.ts` dispatches on
+`PROCESS_ROLE` instead, and every role ships as the same image:
+
+| `PROCESS_ROLE` | Boots            | HTTP |
+| -------------- | ---------------- | ---- |
+| `api` (default)| API + poller + pricing + accrual | port 3000 |
+| `issuer`       | attestation loop | none |
+| `relayer`      | `claim()` submission | none |
+| `settlement`   | `Claimed` event watcher | none |
+| `monitor`      | supply/epoch/health checks, guardian key | none |
+
+An unrecognised value fails fast rather than silently booting the API. What
+makes K-of-N mean anything is separate processes with separate RPC endpoints
+and separate keys — five containers still have exactly that, and
+`issuer-independence.spec.ts` and `relayer-isolation.spec.ts` check the
+endpoints, not the build artefact. Only the API should run migrations
+(`migrationsRun: true`); the workers attach to the schema it made.
+
+`.env.prod` is one file for all five: paste it into each Dokploy service and
+change `PROCESS_ROLE`.
+
 ---
 
 ## API surface

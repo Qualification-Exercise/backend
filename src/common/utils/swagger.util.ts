@@ -23,7 +23,7 @@ Cashback/coupon system with multi-chain asset support and WDK indexer integratio
 `.trim();
 
 export function setupSwagger(app: INestApplication, port: number): void {
-  const config = new DocumentBuilder()
+  const builder = new DocumentBuilder()
     .setTitle('WDK Backend API')
     .setDescription(DESCRIPTION)
     .setVersion('0.1.0')
@@ -44,26 +44,21 @@ export function setupSwagger(app: INestApplication, port: number): void {
     .addTag('secrets', 'Client-encrypted entropy/seed backup blobs')
     .addTag('transactions', 'Record and query on-chain payments')
     .addTag('balances', 'Aggregated per-asset balances')
+    .addTag('merchants', 'Addresses whose incoming transfers earn cashback')
     .addTag('coupons', 'Cashback coupons issued for confirmed payments')
     .addTag('claims', 'Claim coupons as UTL on-chain')
     .addTag('pricing', 'Live asset prices')
     .addTag('indexer', 'Raw WDK indexer passthrough')
     .addTag('config', 'Public runtime configuration')
-    .addTag('health', 'Liveness and dependency status')
-    .addServer(`http://localhost:${port}`, 'Local')
-    .build();
+    .addTag('health', 'Liveness and dependency status');
+
+  if (process.env.NODE_ENV === 'development') {
+    builder.addServer(`http://localhost:${port}`, 'Local');
+  }
+
+  const config = builder.build();
 
   const document = SwaggerModule.createDocument(app, config);
-
-  // Controllers are mounted under the global `api` prefix (health excepted),
-  // but createDocument reports the raw controller paths — "Try it out" would
-  // hit the wrong URL without this.
-  document.paths = Object.fromEntries(
-    Object.entries(document.paths).map(([path, item]) => [
-      path === '/health' ? path : `/api${path}`,
-      item,
-    ]),
-  );
 
   SwaggerModule.setup('docs', app, document, {
     jsonDocumentUrl: 'docs/json',

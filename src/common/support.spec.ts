@@ -115,16 +115,13 @@ describe('CounterService', () => {
 });
 
 describe('setupSwagger', () => {
-  it('mounts every route but /health under the /api prefix', () => {
-    // "Try it out" hits the documented path verbatim, so a document that keeps
-    // the raw controller paths sends every request to the wrong URL.
-    createDocument.mockReturnValueOnce({
-      paths: {
-        '/health': { get: {} },
-        '/coupons': { get: {} },
-        '/claims/{id}': { get: {} },
-      },
-    });
+  it('publishes createDocument paths verbatim', () => {
+    const paths = {
+      '/health': { get: {} },
+      '/api/coupons': { get: {} },
+      '/api/claims/{id}': { get: {} },
+    };
+    createDocument.mockReturnValueOnce({ paths });
 
     setupSwagger({} as never, 3000);
 
@@ -136,6 +133,25 @@ describe('setupSwagger', () => {
       '/api/coupons',
       '/health',
     ]);
+  });
+
+  it.each([
+    ['development', 1],
+    ['production', 0],
+  ])('lists %s servers: %i', (nodeEnv, expected) => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = nodeEnv;
+    try {
+      createDocument.mockReturnValueOnce({ paths: {} });
+      setupSwagger({} as never, 3000);
+
+      const config = (createDocument.mock.calls[0] as unknown[])[1] as {
+        servers?: unknown[];
+      };
+      expect(config.servers ?? []).toHaveLength(expected);
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
   });
 
   it('serves the JSON document next to the UI', () => {
