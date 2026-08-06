@@ -51,6 +51,19 @@ const envSchema = z.object({
   INDEXER_BASE_URL: z.string().url(),
   INDEXER_API_KEY: z.string(),
 
+  /**
+   * Shared secret for merchant registration. Empty means the endpoint is
+   * closed: registering a merchant mints cashback for whoever pays it, so an
+   * unset key must fail closed, never open.
+   */
+  ADMIN_API_KEY: z.string().default(''),
+
+  /** Seeded as the first merchant on migration. Unset: seed nothing. */
+  MERCHANT_ADDRESS: z.string().default(''),
+  MERCHANT_NAME: z.string().default('Demo Merchant'),
+  MERCHANT_SRC_CHAIN_ID: z.coerce.number().int().default(11155111),
+  MERCHANT_TOKEN: z.string().default('usdt'),
+
   PAYMENT_POLL_INTERVAL_MS: z.coerce.number().int().default(30_000),
   PAYMENT_POLL_PAGE_SIZE: z.coerce.number().int().positive().default(50),
   PAYMENT_POLL_MAX_MERCHANTS: z.coerce.number().int().positive().default(20),
