@@ -111,6 +111,31 @@ npm run monitor:pause-drill -- --check     # can the guardian actually pause?
 `.env.issuer.example`, `.env.relayer.example`, `.env.settlement.example` and
 `.env.monitor.example` document what each process needs.
 
+### In production: one image, five deployments
+
+Those `npm run` scripts are ts-node over `src/`, and the production image has
+neither — `nest build` is a webpack bundle with a single entry, and
+`npm ci --omit=dev` drops ts-node. So `src/main.ts` dispatches on
+`PROCESS_ROLE` instead, and every role ships as the same image:
+
+| `PROCESS_ROLE` | Boots            | HTTP |
+| -------------- | ---------------- | ---- |
+| `api` (default)| API + poller + pricing + accrual | port 3000 |
+| `issuer`       | attestation loop | none |
+| `relayer`      | `claim()` submission | none |
+| `settlement`   | `Claimed` event watcher | none |
+| `monitor`      | supply/epoch/health checks, guardian key | none |
+
+An unrecognised value fails fast rather than silently booting the API. What
+makes K-of-N mean anything is separate processes with separate RPC endpoints
+and separate keys — five containers still have exactly that, and
+`issuer-independence.spec.ts` and `relayer-isolation.spec.ts` check the
+endpoints, not the build artefact. Only the API should run migrations
+(`migrationsRun: true`); the workers attach to the schema it made.
+
+`.env.prod` is one file for all five: paste it into each Dokploy service and
+change `PROCESS_ROLE`.
+
 ---
 
 ## API surface
@@ -134,6 +159,9 @@ including the endpoints still to be built — is in
 | PUT    | `/secrets/seed`             | store the encrypted seed blob (derived cache)               |
 | GET    | `/secrets/seed`             | fetch it back (5 / hour, access-logged)                     |
 | DELETE | `/secrets`                  | remove both blobs and the wrapped key                       |
+| GET    | `/merchants`                | addresses whose incoming transfers earn cashback            |
+| GET    | `/merchants/:id`            | one merchant                                                |
+| POST   | `/merchants`                | register one (`x-admin-key`, not a user token)              |
 | GET    | `/coupons`                  | coupon list; `PENDING` rows carry a live confirmation count |
 | GET    | `/coupons/:id`              | one coupon                                                  |
 | GET    | `/coupons/by-code/:code`    | resolve a manually typed code                               |
@@ -149,6 +177,32 @@ including the endpoints still to be built — is in
 | GET    | `/pricing/live`             | live asset price                                            |
 | GET    | `/indexer/:blockchain/:token/:address/token-transfers` | indexer passthrough (debugging)  |
 | GET    | `/indexer/:blockchain/:token/:address/token-balances`  | indexer passthrough (debugging)  |
+
+### The merchant registry
+
+The `merchants` table is the whole subscription list. The payment poller reads
+it every tick and asks the indexer for transfers to those addresses and no
+others, so an address that is not registered generates no payments and
+therefore no coupons. A transfer from a linked wallet to a registered merchant
+becomes a `payments` row, and once it reaches its chain's confirmation depth the
+accrual pass mints a coupon worth `CASHBACK_BPS` of it — 500 bps, 5 %, by
+default.
+
+Registration is guarded by `ADMIN_API_KEY` in the `x-admin-key` header rather
+than a user JWT, because whoever can register an address can pay it and collect
+5 % of their own money back forever. An unset `ADMIN_API_KEY` closes the
+endpoint rather than opening it.
+
+Seed the first merchant by setting `MERCHANT_ADDRESS` (plus
+`MERCHANT_SRC_CHAIN_ID`, `MERCHANT_TOKEN`) before the first boot — the
+`SeedMerchant` migration inserts it. Leave it empty and nothing is seeded; use
+the endpoint:
+
+```bash
+curl -X POST http://localhost:3000/api/merchants \
+  -H "x-admin-key: $ADMIN_API_KEY" -H 'content-type: application/json' \
+  -d '{"name":"Demo Merchant","srcChainId":11155111,"address":"0x…","token":"usdt"}'
+```
 
 ### What `/secrets/*` does and does not hold
 
@@ -203,6 +257,7 @@ variable is documented there and mirrored in `.env.example`.
 | Auth              | `AUTH_PROVIDER`, `JWT_SECRET`, `JWT_EXPIRATION`, `REFRESH_TOKEN_EXPIRATION`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `JWKS_URI`, `GOOGLE_*_CLIENT_ID` |
 | Indexer           | `INDEXER_BASE_URL`, `INDEXER_API_KEY`, `PAYMENT_POLL_*`                                                                       |
 | Money             | `CASHBACK_BPS` (500 = 5 %), `UTL_USD_RATE`, `PRICING_*`, `ACCRUAL_*`                                                          |
+| Merchants         | `ADMIN_API_KEY` (empty closes `POST /merchants`), `MERCHANT_ADDRESS`, `MERCHANT_NAME`, `MERCHANT_SRC_CHAIN_ID`, `MERCHANT_TOKEN` |
 | Chains            | `SUPPORTED_CHAINS`, `SUPPORTED_ASSETS`, `CONFIRMATION_DEPTHS`, `RPC_URLS`, `RPC_SHARING_ALLOWED_CHAINS`, `TOKEN_ADDRESSES`, `REWARD_CHAIN_ID` |
 | Contracts         | `COUPON_CLAIM_CONTRACT_ADDRESS`, `UTILITY_TOKEN_CONTRACT_ADDRESS`, `UTILITY_TOKEN_CONTRACT_ABI`                               |
 | Transactions      | `TX_OBSERVATION_TIMEOUT_MS`, `TX_SWEEP_INTERVAL_MS`, `BALANCE_CACHE_TTL_MS`                                                   |

@@ -7,6 +7,8 @@ import { ConfirmationPolicy } from '@/payments/confirmation-policy';
 import { IndexerCursor } from '@/payments/entities/indexer-cursor.entity';
 import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
+import { MerchantsController } from '@/payments/controllers/merchants.controller';
+import { MerchantsService } from '@/payments/services/merchants.service';
 import { PaymentPollerService } from '@/payments/services/payment-poller.service';
 import { Wallet } from '@/wallets/entities/wallet.entity';
 
@@ -16,7 +18,8 @@ import { Wallet } from '@/wallets/entities/wallet.entity';
     IndexerModule,
     TypeOrmModule.forFeature([Merchant, Payment, IndexerCursor, Wallet]),
   ],
-  providers: [PaymentPollerService, ConfirmationPolicy],
-  exports: [PaymentPollerService, ConfirmationPolicy],
+  controllers: [MerchantsController],
+  providers: [PaymentPollerService, ConfirmationPolicy, MerchantsService],
+  exports: [PaymentPollerService, ConfirmationPolicy, MerchantsService],
 })
 export class PaymentsModule {}

@@ -1,6 +1,7 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@/app.module';
+import { EProcessRole } from '@/config/process-role.enum';
 import { validateEnv } from '@/config/env';
 import { setupSwagger } from '@/common/utils/swagger.util';
 import { pino } from 'pino';
@@ -15,7 +16,7 @@ const _logger = pino({
   },
 });
 
-async function bootstrap() {
+async function bootstrapApi() {
   const app = await NestFactory.create(AppModule);
   const env = validateEnv(process.env);
 
@@ -46,6 +47,49 @@ async function bootstrap() {
 
   _logger.info(`Application is running on: http://localhost:${port}`);
   _logger.info(`Swagger docs available at: http://localhost:${port}/docs`);
+}
+
+async function bootstrapWorker(module: unknown, name: string): Promise<void> {
+  const app = await NestFactory.createApplicationContext(
+    module as Parameters<typeof NestFactory.createApplicationContext>[0],
+    { bufferLogs: false },
+  );
+  app.enableShutdownHooks();
+  new Logger(name).log(`${name} process started (no inbound HTTP)`);
+}
+
+async function bootstrap() {
+  const role = (process.env.PROCESS_ROLE ?? EProcessRole.API) as EProcessRole;
+
+  switch (role) {
+    case EProcessRole.API:
+      return bootstrapApi();
+    case EProcessRole.ISSUER:
+      return bootstrapWorker(
+        (await import('@/issuer/issuer.module')).IssuerModule,
+        'Issuer',
+      );
+    case EProcessRole.RELAYER:
+      return bootstrapWorker(
+        (await import('@/relayer/relayer.module')).RelayerModule,
+        'Relayer',
+      );
+    case EProcessRole.SETTLEMENT:
+      return bootstrapWorker(
+        (await import('@/settlements/settlements.module')).SettlementsModule,
+        'SettlementWatcher',
+      );
+    case EProcessRole.MONITOR:
+      return bootstrapWorker(
+        (await import('@/monitor/monitor.module')).MonitorModule,
+        'Monitor',
+      );
+    default:
+      throw new Error(
+        `Unknown PROCESS_ROLE '${String(role)}'. ` +
+          `Expected one of: ${Object.values(EProcessRole).join(', ')}`,
+      );
+  }
 }
 
 bootstrap().catch((err) => {

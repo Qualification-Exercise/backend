@@ -13,6 +13,7 @@ import { ClaimChallenges1786000000000 } from './1786000000000-ClaimChallenges';
 import { BalanceCache1786100000000 } from './1786100000000-BalanceCache';
 import { SeedSigners1786200000000 } from './1786200000000-SeedSigners';
 import { BalanceCacheUserRelation1786300000000 } from './1786300000000-BalanceCacheUserRelation';
+import { SeedMerchant1786400000000 } from './1786400000000-SeedMerchant';
 
 /**
  * Listed explicitly, not globbed: `nest build` bundles the app into a single
@@ -35,4 +36,5 @@ export const migrations = [
   BalanceCache1786100000000,
   SeedSigners1786200000000,
   BalanceCacheUserRelation1786300000000,
+  SeedMerchant1786400000000,
 ];
