@@ -7,19 +7,21 @@ Cashback/coupon system with multi-chain asset support and WDK indexer integratio
 ## Flow
 1. \`POST /auth/google\` — exchange a Google ID token for access/refresh tokens.
 2. \`POST /wallets\` — link the chain addresses derived on the client.
-3. \`PUT /secrets/{entropy|seed}\` — store the client-encrypted backup blob (server never sees plaintext).
-4. \`POST /transactions\` — record an on-chain payment; once confirmed it issues a coupon.
-5. \`GET /coupons\` → \`GET /claims/challenge\` → \`POST /claims\` — claim cashback as UTL.
+3. \`POST /secrets/{entropy|seed}\` — store a client-encrypted backup blob (server never sees plaintext); writes append, reads return every stored blob.
+4. \`GET /merchants\` — addresses whose incoming transfers earn cashback.
+5. \`POST /transactions\` — record an on-chain payment; once confirmed it issues a coupon.
+6. \`GET /coupons\` → \`GET /claims/challenge\` → \`POST /claims\` — claim cashback as UTL.
 
 ## Conventions
 - All routes except \`GET /health\` are served under the \`/api\` prefix.
 - Auth: \`Authorization: Bearer <accessToken>\`. Authorize once via the lock button.
 - Amounts are integer strings in the asset's smallest unit — never floats.
-- Writes that create money-moving records (\`POST /transactions\`, \`POST /claims\`) accept an
-  \`Idempotency-Key\` header; a repeat with the same key returns the first result.
+- \`POST /transactions\` requires an \`Idempotency-Key\` header; \`POST /claims\` accepts one.
+  A repeat with the same key returns the first result.
 - List endpoints are cursor-paginated: pass the returned \`cursor\` back as \`?cursor=\`.
 - Errors: \`{ statusCode, message, error }\`; \`message\` carries a code from \`EErrorCodes\`.
-- Rate limits apply per route (secret reads and transaction writes are the tightest).
+- Rate limits apply per route (indexer passthrough and \`POST /transactions\` are the tightest).
+- \`POST /merchants\` is admin-only: send the \`x-admin-key\` header instead of a bearer token.
 `.trim();
 
 export function setupSwagger(app: INestApplication, port: number): void {
