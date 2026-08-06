@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { EProcessRole } from '@/config/process-role.enum';
+
 function isJsonObject(value: string): boolean {
   try {
     const parsed = JSON.parse(value);
@@ -17,6 +19,8 @@ const envSchema = z.object({
     .default('development'),
   PORT: z.coerce.number().default(3000),
   APP_NAME: z.string().default('wdk-backend'),
+
+  PROCESS_ROLE: z.nativeEnum(EProcessRole).default(EProcessRole.API),
 
   DB_HOST: z.string().default('localhost'),
   DB_PORT: z.coerce.number().default(5432),
@@ -36,10 +40,11 @@ const envSchema = z.object({
 
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRATION: z.coerce.number().default(3600),
-  AUTH_PROVIDER: z.enum(['auth0', 'keycloak', 'cognito']).default('auth0'),
   AUTH_ISSUER: z.string().url(),
   AUTH_AUDIENCE: z.string(),
-  JWKS_URI: z.string().url(),
+
+  AUTH_PROVIDER: z.enum(['auth0', 'keycloak', 'cognito']).default('auth0'),
+  JWKS_URI: z.string().url().optional(),
 
   GOOGLE_IOS_CLIENT_ID: z.string(),
   GOOGLE_ANDROID_CLIENT_ID: z.string(),
