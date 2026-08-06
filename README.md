@@ -154,11 +154,10 @@ including the endpoints still to be built — is in
 | GET    | `/users/me`                 | current user, wallet mapping, which blobs are stored        |
 | POST   | `/wallets`                  | link every address derived from the mnemonic, in one call   |
 | GET    | `/wallets`                  | the user's linked addresses                                 |
-| PUT    | `/secrets/entropy`          | store the encrypted entropy blob (ciphertext only)          |
-| GET    | `/secrets/entropy`          | fetch it back for a restore (5 / hour, access-logged)       |
-| PUT    | `/secrets/seed`             | store the encrypted seed blob (derived cache)               |
-| GET    | `/secrets/seed`             | fetch it back (5 / hour, access-logged)                     |
-| DELETE | `/secrets`                  | remove both blobs and the wrapped key                       |
+| POST   | `/secrets/entropy`          | store an encrypted entropy blob (opaque string, 204)        |
+| GET    | `/secrets/entropy`          | `{ entropies: [{ entropy, metadata? }] }` for a restore     |
+| POST   | `/secrets/seed`             | store an encrypted seed blob (derived cache, 204)           |
+| GET    | `/secrets/seed`             | `{ seeds: [{ seed, metadata? }] }`                          |
 | GET    | `/merchants`                | addresses whose incoming transfers earn cashback            |
 | GET    | `/merchants/:id`            | one merchant                                                |
 | POST   | `/merchants`                | register one (`x-admin-key`, not a user token)              |
@@ -209,20 +208,21 @@ curl -X POST http://localhost:3000/api/merchants \
 Ciphertext, and nothing else. Encryption and decryption happen on the device;
 the mnemonic, entropy, seed, passphrase and encryption key never reach this
 process. Two blobs, because WDK produces two: `entropy` is the source of truth,
-`seed` is a derived cache that can be recomputed. Both are AES-256-GCM under one
-key, and that key is stored **wrapped** under an Argon2id KEK derived from the
-user's passphrase.
+`seed` is a derived cache that can be recomputed.
 
-The server cannot check that the passphrase was strong. It checks that the
-derivation was: a wrapped key below the floor in `GET /config`
-(`argon2id`, `m ≥ 65536`, `t ≥ 3`, `p ≥ 1`) is refused with `WEAK_KDF_PARAMS`.
-Blobs are size-capped by the format, `metadata.address` must be the user's
-primary EVM wallet, reads are rate-limited to 5 per hour and every read is
-logged whether or not it hit — a run of misses is the shape worth alerting on.
+The blob is an **opaque string**: no format, no length beyond the 50 KB body cap,
+no server-side KDF policy — cipher, KDF and its parameters are the client's
+choice and travel in the free-form `metadata` object the server stores verbatim.
+Writes append, so a user can hold several blobs per kind (multi-wallet,
+rotation), and a read returns the list — `{ entropies: [...] }` /
+`{ seeds: [...] }`, empty when nothing is stored. There is no delete route:
+blobs go away with the user (`ON DELETE CASCADE`). Reads carry no per-route rate
+limit either — only the global throttler — but every read is logged whether or
+not it hit, a run of misses being the shape worth alerting on.
 
 Storing a seed server-side is a client requirement, not a recommendation: the
-KDF and the passphrase behind it are the only thing between a stolen database
-and every user's funds.
+client-side KDF and the passphrase behind it are the only thing between a stolen
+database and every user's funds, and this server does not enforce either.
 
 ### Where the signature happens
 
@@ -287,8 +287,8 @@ Signing keys are never in the database and never in plaintext:
 ISSUER_SIGNING_KEY=enc:argon2id$m=65536,t=3,p=1$<salt>$<iv||ciphertext||tag>
 ```
 
-`enc:` is opened with `SIGNER_KEY_PASSWORD` (32 random bytes) using Argon2id at
-the same parameters as the mobile seed backup. `env:0x…` is refused outside
+`enc:` is opened with `SIGNER_KEY_PASSWORD` (32 random bytes) using Argon2id
+(`m=65536, t=3, p=1`). `env:0x…` is refused outside
 development; `kms:<arn>` is the production shape and is deliberately **not
 implemented** rather than faked — a stub that signed locally would make an
 insecure deployment look secure. Signing goes through
@@ -402,7 +402,7 @@ From the endpoint contract in the plan docs:
 - **`POST /auth/session` / `GET /me`** as named in the reference — the same
   ground is covered today by `/auth/google` and `/users/me`.
 - Helmet and request correlation ids. Rate limiting is in place (`ThrottlerModule`
-  globally, per-route `@Throttle` on `/secrets/*` and `/transactions`).
+  globally, per-route `@Throttle` on `/transactions`; `/secrets/*` adds none).
 - Integration tests for the raw SQL paths — the coupon list `UNION ALL`, the
   idempotency `ON CONFLICT` claim — which unit tests reach only through a mocked
   `query()` and so prove nothing about the SQL itself.

@@ -8,7 +8,6 @@ import { CouponsController } from '@/coupons/controllers/coupons.controller';
 import { HealthController } from '@/health/health.controller';
 import { HealthService } from '@/health/services/health.service';
 import { IndexerController } from '@/indexer/controllers/indexer.controller';
-import { SECRETS_KDF_FLOOR } from '@/secrets/kdf-floor';
 import { SecretsController } from '@/secrets/controllers/secrets.controller';
 import { TransactionsController } from '@/transactions/controllers/transactions.controller';
 import { UsersController } from '@/users/controllers/users.controller';
@@ -181,32 +180,31 @@ describe('ClaimsController', () => {
 
 describe('SecretsController', () => {
   const service = {
-    put: returns({ stored: 'entropy' }),
-    get: returns({ entropy: 'cipher' }),
-    remove: returns(undefined),
+    store: returns(undefined),
+    list: returns([{ entropy: 'cipher' }]),
   };
   const controller = new SecretsController(service as never);
 
   it('routes each blob to its own kind', async () => {
-    const dto = { metadata: { address: '0xabc', wordCount: 12 } } as never;
+    const dto = { entropy: 'cipher', metadata: { v: 1 } } as never;
 
-    await controller.putEntropy(USER as never, dto);
-    expect(service.put).toHaveBeenCalledWith('user-1', 'entropy', dto);
+    await controller.storeEntropy(USER as never, dto);
+    expect(service.store).toHaveBeenCalledWith('user-1', 'entropy', dto);
 
-    await controller.putSeed(USER as never, dto);
-    expect(service.put).toHaveBeenCalledWith('user-1', 'seed', dto);
-
-    await controller.getEntropy(USER as never);
-    expect(service.get).toHaveBeenCalledWith('user-1', 'entropy');
-
-    await controller.getSeed(USER as never);
-    expect(service.get).toHaveBeenCalledWith('user-1', 'seed');
+    await controller.storeSeed(USER as never, dto);
+    expect(service.store).toHaveBeenCalledWith('user-1', 'seed', dto);
   });
 
-  it('deletes both blobs for the caller', async () => {
-    await controller.remove(USER as never);
+  it('wraps each read in its list key', async () => {
+    await expect(controller.getEntropy(USER as never)).resolves.toEqual({
+      entropies: [{ entropy: 'cipher' }],
+    });
+    expect(service.list).toHaveBeenCalledWith('user-1', 'entropy');
 
-    expect(service.remove).toHaveBeenCalledWith('user-1');
+    await expect(controller.getSeed(USER as never)).resolves.toEqual({
+      seeds: [{ entropy: 'cipher' }],
+    });
+    expect(service.list).toHaveBeenCalledWith('user-1', 'seed');
   });
 });
 
@@ -334,7 +332,6 @@ describe('ConfigController', () => {
       cashbackBps: 500,
       cashbackRate: 0.05,
       confirmationDepths: { 1: 12, 11155111: 3 },
-      secretsKdfFloor: SECRETS_KDF_FLOOR,
       pageSize: 10,
     });
   });

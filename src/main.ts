@@ -1,5 +1,6 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '@/app.module';
 import { EProcessRole } from '@/config/process-role.enum';
 import { validateEnv } from '@/config/env';
@@ -17,7 +18,7 @@ const _logger = pino({
 });
 
 async function bootstrapApi() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const env = validateEnv(process.env);
 
   const corsOrigins =
@@ -37,6 +38,8 @@ async function bootstrapApi() {
       transform: true,
     }),
   );
+
+  app.useBodyParser('json', { limit: 51_200 });
 
   app.setGlobalPrefix('api', { exclude: ['health'] });
 

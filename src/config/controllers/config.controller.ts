@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import type { Env } from '@/config/env';
-import { SECRETS_KDF_FLOOR } from '@/secrets/kdf-floor';
 
 const PAGE_SIZE = 10;
 
@@ -16,7 +15,7 @@ export class ConfigController {
   @ApiOperation({
     summary: 'Public runtime configuration',
     description:
-      'Values clients must not hardcode: UTL/USD rate, cashback rate, per-chain confirmation depths, the minimum KDF parameters accepted by `PUT /secrets/*`, and the list page size.',
+      'Values clients must not hardcode: UTL/USD rate, cashback rate, per-chain confirmation depths, and the list page size.',
   })
   @ApiOkResponse({
     schema: {
@@ -25,14 +24,6 @@ export class ConfigController {
         cashbackBps: 200,
         cashbackRate: 0.02,
         confirmationDepths: { '1': 12, '42161': 20 },
-        secretsKdfFloor: {
-          algo: 'argon2id',
-          m: 65536,
-          t: 3,
-          p: 1,
-          minPassphraseLength: 12,
-          minZxcvbnScore: 3,
-        },
         pageSize: 10,
       },
     },
@@ -46,7 +37,6 @@ export class ConfigController {
       confirmationDepths: JSON.parse(
         this.configService.get('CONFIRMATION_DEPTHS'),
       ),
-      secretsKdfFloor: SECRETS_KDF_FLOOR,
       pageSize: PAGE_SIZE,
     };
   }

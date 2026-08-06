@@ -5,7 +5,7 @@ import { EChainKind } from '@/chains/chain-kind.enum';
 import { ListClaimsDTO } from '@/claims/dtos/list-claims.dto';
 import { CreateClaimDTO } from '@/claims/dtos/create-claim.dto';
 import { ListCouponsDTO } from '@/coupons/dtos/list-coupons.dto';
-import { PutSecretDTO } from '@/secrets/dtos/put-secret.dto';
+import { StoreSecretDTO } from '@/secrets/dtos/store-secret.dto';
 import { CreateTransactionDTO } from '@/transactions/dtos/create-transaction.dto';
 import { ListTransactionsDTO } from '@/transactions/dtos/list-transactions.dto';
 import { ETxStatus, ETxType } from '@/transactions/enums/tx.enum';
@@ -165,50 +165,25 @@ describe('LinkWalletsDTO', () => {
   });
 });
 
-describe('PutSecretDTO', () => {
-  const valid = {
-    entropy: 'ZW50cm9weQ==',
-    wrappedKey: {
-      ciphertext: 'd3JhcHBlZA==',
-      kdf: { algo: 'argon2id', salt: 'c2FsdA==', m: 65536, t: 3, p: 1 },
-    },
-    metadata: { address: ADDRESS, wordCount: 12 },
-  };
+describe('StoreSecretDTO', () => {
+  it('accepts an opaque blob with free-form metadata', () => {
+    expect(
+      errorsFor(StoreSecretDTO, {
+        entropy: 'anything-the-client-encrypted',
+        metadata: { kdf: 'scrypt', iv: 'abc', label: 'main' },
+      }),
+    ).toEqual([]);
+  });
 
-  it('accepts a client-encrypted blob', () => {
-    expect(errorsFor(PutSecretDTO, valid)).toEqual([]);
+  it('accepts a blob with no metadata at all', () => {
+    expect(errorsFor(StoreSecretDTO, { seed: 'cipher' })).toEqual([]);
   });
 
   it.each([
-    ['ciphertext that is not base64', { entropy: 'not base64!!' }],
-    [
-      'a word count outside 12 or 24',
-      { metadata: { address: ADDRESS, wordCount: 15 } },
-    ],
-    [
-      'a KDF algorithm we do not implement',
-      {
-        wrappedKey: {
-          ...valid.wrappedKey,
-          kdf: { ...valid.wrappedKey.kdf, algo: 'scrypt' },
-        },
-      },
-    ],
-    [
-      'a non-positive KDF cost',
-      {
-        wrappedKey: {
-          ...valid.wrappedKey,
-          kdf: { ...valid.wrappedKey.kdf, t: 0 },
-        },
-      },
-    ],
-    [
-      'a cipher we do not implement',
-      { wrappedKey: { ...valid.wrappedKey, cipher: 'aes-128-cbc' } },
-    ],
-  ])('rejects %s', (_label, override) => {
-    expect(errorsFor(PutSecretDTO, { ...valid, ...override })).not.toEqual([]);
+    ['a non-string blob', { entropy: 42 }],
+    ['non-object metadata', { entropy: 'cipher', metadata: 'nope' }],
+  ])('rejects %s', (_label, body) => {
+    expect(errorsFor(StoreSecretDTO, body)).not.toEqual([]);
   });
 });
 

@@ -90,7 +90,7 @@ Seventeen tables, grouped by what they are for.
 | ------------------ | ------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `users`            | IdP subject → user                    | `UNIQUE (externalAuthId)`. Email is display-only: not unique, not an identity                    |
 | `wallets`          | one address per chain per user        | `UNIQUE (chain, address)`, `UNIQUE (userId, chain)`, one primary per user (partial unique index) |
-| `wallet_secrets`   | client-encrypted entropy/seed         | ciphertext only, with CHECKs on blob sizes and `word_count IN (12, 24)`                          |
+| `wallet_secrets`   | client-encrypted entropy/seed         | opaque ciphertext + free-form `metadata`, append-only list per user and kind                     |
 | `claim_challenges` | single-use nonce for the claim screen | `UNIQUE (nonce)`, consumed once, five-minute TTL                                                 |
 
 **The money path**
