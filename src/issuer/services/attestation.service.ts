@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { Hex } from 'viem';
 
+import { hoursToMs } from '@/common/time';
+import { isUniqueViolation } from '@/common/database/pg-errors';
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
 import { EChainKind } from '@/chains/chain-kind.enum';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
@@ -20,8 +22,6 @@ import { Payment } from '@/payments/entities/payment.entity';
 import { PriceSnapshot } from '@/pricing/entities/price-snapshot.entity';
 import { PriceSource, assetForToken } from '@/pricing/price-source';
 import { Wallet } from '@/wallets/entities/wallet.entity';
-
-const PG_UNIQUE_VIOLATION = '23505';
 
 export interface IAttestationOutcome {
   signed: boolean;
@@ -92,7 +92,7 @@ export class AttestationService {
         chainId: String(this.config.chainId),
       });
     } catch (err) {
-      if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
+      if (!isUniqueViolation(err)) throw err;
       this.logger.debug(`Already attested claim ${claim.id}; nothing to do`);
       return { signed: true };
     }
@@ -260,7 +260,7 @@ export class AttestationService {
     if (this.config.cooldownHours <= 0) return;
 
     const since = new Date(
-      Date.now() - this.config.cooldownHours * 3_600_000,
+      Date.now() - hoursToMs(this.config.cooldownHours),
     ).toISOString();
     const [row] = (await this.claims.query(
       `SELECT c.id

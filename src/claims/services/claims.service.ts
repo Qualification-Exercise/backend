@@ -15,6 +15,14 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository, type EntityManager } from 'typeorm';
 
+import {
+  decodeKeysetCursor,
+  encodeKeysetCursor,
+  resolvePageLimit,
+} from '@/common/pagination/keyset-cursor';
+import { MINUTE_MS, hoursToMs } from '@/common/time';
+import { isUniqueViolation } from '@/common/database/pg-errors';
+import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import { EChainKind } from '@/chains/chain-kind.enum';
 import { ClaimChallenge } from '@/claims/entities/claim-challenge.entity';
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
@@ -39,32 +47,7 @@ import { claimMessage, verifyOwnership } from '@/wallets/address';
 import { WalletsService } from '@/wallets/services/wallets.service';
 import { SettlementEntity } from '@/settlements/entities/settlement.entity';
 
-const PG_UNIQUE_VIOLATION = '23505';
-
-const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-
-/** Same page size as every other list route, so the client has one rule. */
-const CLAIM_PAGE_SIZE = 10;
-
-function encodeClaimCursor(claim: ClaimEntity): string {
-  return Buffer.from(
-    JSON.stringify({ at: claim.createdAt.toISOString(), id: claim.id }),
-  ).toString('base64url');
-}
-
-function decodeClaimCursor(cursor: string): { at: string; id: string } {
-  try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString());
-    if (typeof parsed?.at !== 'string' || typeof parsed?.id !== 'string') {
-      throw new Error('bad shape');
-    }
-    return parsed;
-  } catch {
-    throw new BadRequestException(
-      apiError(EErrorCodes.INVALID_CURSOR, 'Cursor is not one we issued'),
-    );
-  }
-}
+const CHALLENGE_TTL_MS = 5 * MINUTE_MS;
 
 export interface IClaimChallengeResponse {
   challengeId: string;
@@ -136,7 +119,7 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
   private readonly cooldownHours: number;
   private readonly deadlineSeconds: number;
   private readonly sweepIntervalMs: number;
-  private timer?: NodeJS.Timeout;
+  private readonly loop = new IntervalLoop(this.logger);
 
   constructor(
     @InjectRepository(ClaimEntity)
@@ -160,18 +143,14 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    if (this.sweepIntervalMs <= 0) {
-      this.logger.log('Claim deadline sweep disabled');
-      return;
-    }
-    this.timer = setInterval(() => {
-      void this.sweepOverdue();
-    }, this.sweepIntervalMs);
-    this.timer.unref?.();
+    const message = 'Claim deadline sweep disabled';
+    if (this.loop.disabled(this.sweepIntervalMs, message)) return;
+
+    this.loop.start(this.sweepIntervalMs, () => this.sweepOverdue());
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    this.loop.stop();
   }
 
   async createChallenge(
@@ -301,7 +280,7 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     try {
       await em.save(claim);
     } catch (err) {
-      if ((err as { code?: string }).code === PG_UNIQUE_VIOLATION) {
+      if (isUniqueViolation(err)) {
         throw this.notClaimable();
       }
       throw err;
@@ -355,7 +334,7 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     if (!row) return null;
 
     const nextAt = new Date(
-      new Date(row.at).getTime() + this.cooldownHours * 3_600_000,
+      new Date(row.at).getTime() + hoursToMs(this.cooldownHours),
     );
     return nextAt.getTime() > Date.now() ? nextAt : null;
   }
@@ -511,8 +490,8 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async list(userId: string, query: ListClaimsDTO) {
-    const limit = Math.min(query.limit ?? CLAIM_PAGE_SIZE, CLAIM_PAGE_SIZE);
-    const after = query.cursor ? decodeClaimCursor(query.cursor) : null;
+    const limit = resolvePageLimit(query.limit);
+    const after = query.cursor ? decodeKeysetCursor(query.cursor) : null;
 
     const qb = this.claims
       .createQueryBuilder('claim')
@@ -559,7 +538,12 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
         updatedAt: claim.updatedAt.toISOString(),
       })),
       nextCursor:
-        rows.length > limit ? encodeClaimCursor(page[page.length - 1]) : null,
+        rows.length > limit
+          ? encodeKeysetCursor(
+              page[page.length - 1].createdAt,
+              page[page.length - 1].id,
+            )
+          : null,
     };
   }
 

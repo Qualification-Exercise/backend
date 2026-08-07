@@ -97,9 +97,9 @@ function build(
     getBlock: async () => ({ hash: chain.blockHash ?? BLOCK_HASH }),
     getBlockNumber: async () => BigInt(chain.head ?? BLOCK + 20),
   };
-  (verifier as unknown as { clients: Map<number, unknown> }).clients = new Map([
-    [SEPOLIA, client],
-  ]);
+  (verifier as unknown as { clients: { get: () => unknown } }).clients = {
+    get: () => client,
+  };
 
   return verifier;
 }

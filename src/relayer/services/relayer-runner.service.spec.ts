@@ -101,7 +101,9 @@ function build(world: IWorld = {}) {
       findOne: jest.fn().mockResolvedValue({ address: config.signer.address }),
     } as never,
   );
-  (service as unknown as { client: unknown }).client = client;
+  (service as unknown as { clients: { get: () => unknown } }).clients = {
+    get: () => client,
+  };
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
 
   return { service, config, preflight, verifier, claims, client };

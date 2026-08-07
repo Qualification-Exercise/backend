@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
 import {
   EClaimFailureReason,
@@ -21,7 +22,7 @@ import { ESignerRole } from '@/signers/enums/signer-role.enum';
 @Injectable()
 export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(IssuerRunnerService.name);
-  private timer?: NodeJS.Timeout;
+  private readonly loop = new IntervalLoop(this.logger);
   private running = false;
 
   constructor(
@@ -40,12 +41,9 @@ export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
         `(chains=${Object.keys(this.config.endpoints).join(',')}, ` +
         `prices=${this.config.priceProvider})`,
     );
-    if (this.config.pollIntervalMs <= 0) {
-      this.logger.log(
-        'Attestation loop disabled (ISSUER_POLL_INTERVAL_MS <= 0)',
-      );
-      return;
-    }
+    const disabledMessage =
+      'Attestation loop disabled (ISSUER_POLL_INTERVAL_MS <= 0)';
+    if (this.loop.disabled(this.config.pollIntervalMs, disabledMessage)) return;
 
     // An address the registry does not know is an address the contract's
     // ISSUER_ROLE probably does not know either. Signing anyway would produce
@@ -63,14 +61,11 @@ export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
         `Issuer ${this.config.signer.address} is not an active issuer in the signers registry`,
       );
     }
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.config.pollIntervalMs);
-    this.timer.unref?.();
+    this.loop.start(this.config.pollIntervalMs, () => this.tick());
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    this.loop.stop();
   }
 
   async tick(): Promise<void> {

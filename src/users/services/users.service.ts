@@ -1,9 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { isUniqueViolation } from '@/common/database/pg-errors';
 import { User } from '@/users/entities/user.entity';
-
-const PG_UNIQUE_VIOLATION = '23505';
 
 @Injectable()
 export class UsersService {
@@ -26,7 +25,7 @@ export class UsersService {
     try {
       return await this.users.save(this.users.create(data));
     } catch (err) {
-      if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
+      if (!isUniqueViolation(err)) throw err;
       const existing = await this.users.findOne({
         where: { externalAuthId: data.externalAuthId },
       });

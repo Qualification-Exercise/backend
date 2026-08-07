@@ -1,14 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import {
-  createPublicClient,
-  http,
-  parseAbiItem,
-  type Hex,
-  type PublicClient,
-} from 'viem';
+import { parseAbiItem, type Hex, type PublicClient } from 'viem';
 
+import { ChainClientCache } from '@/common/chain/public-client';
 import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
 import { PaymentVerifierService } from '@/common/chain/payment-verifier.service';
 import { paymentRef } from '@/chains';
@@ -33,7 +28,7 @@ const LOOKBACK_BLOCKS = 500n;
  */
 @Injectable()
 export class PaymentSamplerService {
-  private readonly clients = new Map<number, PublicClient>();
+  private readonly clients = new ChainClientCache();
 
   constructor(
     private readonly config: MonitorConfig,
@@ -130,14 +125,9 @@ export class PaymentSamplerService {
   }
 
   private rpc(srcChainId: number): PublicClient {
-    const existing = this.clients.get(srcChainId);
-    if (existing) return existing;
-
     const url = this.config.rpcUrlFor(srcChainId);
     if (!url) throw new Error(`Monitor has no node for chain ${srcChainId}`);
 
-    const client = createPublicClient({ transport: http(url) });
-    this.clients.set(srcChainId, client);
-    return client;
+    return this.clients.get(url);
   }
 }
