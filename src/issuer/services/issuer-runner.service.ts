@@ -7,6 +7,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
+import { CounterService } from '@/common/metrics/counter.service';
+import {
+  COUNTER_ISSUER_CLAIMS_SEEN,
+  COUNTER_ISSUER_TICKS,
+} from '@/common/metrics/service-counter.entity';
 import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
 import {
@@ -29,6 +35,8 @@ export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
     private readonly config: IssuerConfig,
     private readonly attestation: AttestationService,
     private readonly claims: ClaimsService,
+    private readonly counters: CounterService,
+    private readonly alerts: AlertService,
     @InjectRepository(ClaimEntity)
     private readonly claimRepo: Repository<ClaimEntity>,
     @InjectRepository(SignerEntity)
@@ -75,11 +83,23 @@ export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
     }
     this.running = true;
     try {
-      for (const claim of await this.pending()) {
+      this.counters.increment(COUNTER_ISSUER_TICKS);
+      const pending = await this.pending();
+      this.counters.increment(COUNTER_ISSUER_CLAIMS_SEEN, pending.length);
+      for (const claim of pending) {
         await this.handle(claim);
       }
     } catch (err) {
-      this.logger.error(`Attestation tick failed: ${String(err)}`);
+      // A tick that throws leaves its claim in PENDING_ATTESTATION, so nothing
+      // ever reaches the FAILED rows the monitor watches — without an alert of
+      // its own this failure mode is invisible everywhere but the log.
+      await this.alerts.raise({
+        code: 'issuer.tick_failed',
+        severity: EAlertSeverity.ERROR,
+        subject: this.config.id,
+        message: 'An attestation pass failed; its claims stay unsigned',
+        context: { error: String(err) },
+      });
     } finally {
       this.running = false;
     }
@@ -112,10 +132,17 @@ export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    this.logger.error(
-      `security_event=attestation.rejected issuer=${this.config.id} ` +
-        `claim=${claim.id} reason=${outcome.reason}`,
-    );
+    await this.alerts.raise({
+      code: 'attestation.rejected',
+      severity: EAlertSeverity.ERROR,
+      subject: claim.id,
+      message: 'This issuer refused to attest a claim',
+      context: {
+        issuer: this.config.id,
+        paymentRef: claim.coupon.paymentRef,
+        reason: outcome.reason,
+      },
+    });
     await this.claims.fail(
       claim.id,
       EClaimFailureReason.ATTESTATION_REJECTED,

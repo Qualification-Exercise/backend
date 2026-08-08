@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
 import { ClaimsModule } from '@/claims/claims.module';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
+import { AlertService } from '@/common/alerts/alert.service';
 import { CHAIN_VIEW_CONFIG } from '@/common/chain/chain-view.config';
 import { PaymentVerifierService } from '@/common/chain/payment-verifier.service';
 import { BitcoinPaymentVerifier } from '@/common/chain/verifiers/bitcoin.verifier';
@@ -43,6 +44,7 @@ import { SignerEntity } from '@/signers/entities/signer.entity';
   ],
   providers: [
     RelayerConfig,
+    AlertService,
     { provide: CHAIN_VIEW_CONFIG, useExisting: RelayerConfig },
     ConfirmationPolicy,
     PaymentVerifierService,

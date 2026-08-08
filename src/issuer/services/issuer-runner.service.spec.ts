@@ -4,7 +4,10 @@ import { IssuerRunnerService } from '@/issuer/services/issuer-runner.service';
 
 const CLAIM = { id: 'clm-1', coupon: { paymentRef: '0xref' } };
 
-function build(outcome: { signed: boolean; reason?: string }) {
+function build(
+  outcome: { signed: boolean; reason?: string },
+  pending: (typeof CLAIM)[] = [CLAIM],
+) {
   const config = {
     id: 'issuer-a',
     endpoints: {
@@ -28,21 +31,26 @@ function build(outcome: { signed: boolean; reason?: string }) {
     andWhere: () => qb,
     orderBy: () => qb,
     limit: () => qb,
-    getMany: async () => [CLAIM],
+    getMany: async () => pending,
   };
   const claimRepo = { createQueryBuilder: () => qb };
   const signers = {
     findOne: jest.fn().mockResolvedValue({ address: '0xIssuerA' }),
   };
 
+  const counters = { increment: jest.fn() };
+  const alerts = { raise: jest.fn().mockResolvedValue(undefined) };
+
   const service = new IssuerRunnerService(
     config,
     attestation as never,
     claims as never,
+    counters as never,
+    alerts as never,
     claimRepo as never,
     signers as never,
   );
-  return { service, attestation, claims, signers };
+  return { service, attestation, claims, signers, counters, alerts };
 }
 
 describe('IssuerRunnerService', () => {
@@ -56,14 +64,10 @@ describe('IssuerRunnerService', () => {
   });
 
   it('fails the claim with the reason on disagreement, and never retries it', async () => {
-    const { service, claims, attestation } = build({
+    const { service, claims, attestation, alerts } = build({
       signed: false,
       reason: 'AMOUNT_MISMATCH: recomputed 1, claim says 2',
     });
-    const logged: string[] = [];
-    jest
-      .spyOn(service['logger'], 'error')
-      .mockImplementation((msg) => logged.push(String(msg)));
 
     await service.tick();
 
@@ -73,9 +77,24 @@ describe('IssuerRunnerService', () => {
       expect.stringContaining('AMOUNT_MISMATCH'),
     );
     expect(claims.markAttested).not.toHaveBeenCalled();
-    expect(logged.join()).toContain('security_event=attestation.rejected');
+    // The line itself now comes out of AlertService, which logs and notifies
+    // from one place — the runner's job is to hand it the rejection.
+    expect(alerts.raise).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'attestation.rejected' }),
+    );
 
     expect(attestation.attest).toHaveBeenCalledTimes(1);
+  });
+
+  // psql is the only window into a host whose logs you cannot read, so a pass
+  // that found nothing still has to leave a mark saying it ran.
+  it('records the pass even when it signs nothing', async () => {
+    const { service, counters } = build({ signed: true }, []);
+
+    await service.tick();
+
+    expect(counters.increment).toHaveBeenCalledWith('issuer.ticks');
+    expect(counters.increment).toHaveBeenCalledWith('issuer.claims_seen', 0);
   });
 
   it('refuses to start when its address is not a registered active issuer', async () => {

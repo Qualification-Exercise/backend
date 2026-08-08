@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { encodeFunctionData, type Hex, type PublicClient } from 'viem';
 
 import { ChainClientCache } from '@/common/chain/public-client';
+import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
 import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
@@ -52,6 +53,7 @@ export class RelayerRunnerService implements OnModuleInit, OnModuleDestroy {
     private readonly verifier: PaymentVerifierService,
     private readonly nonces: NonceManagerService,
     private readonly claims: ClaimsService,
+    private readonly alerts: AlertService,
     @InjectRepository(ClaimEntity)
     private readonly claimRepo: Repository<ClaimEntity>,
     @InjectRepository(AttestationEntity)
@@ -104,7 +106,15 @@ export class RelayerRunnerService implements OnModuleInit, OnModuleDestroy {
         await this.handle(claim);
       }
     } catch (err) {
-      this.logger.error(`Submission tick failed: ${String(err)}`);
+      // Same blind spot as the issuer: a throwing tick leaves claims in
+      // ATTESTED, which no FAILED-row watcher will ever notice.
+      await this.alerts.raise({
+        code: 'relayer.tick_failed',
+        severity: EAlertSeverity.ERROR,
+        subject: this.config.id,
+        message: 'A submission pass failed; its claims stay unsubmitted',
+        context: { error: String(err) },
+      });
     } finally {
       this.running = false;
     }
@@ -248,9 +258,13 @@ export class RelayerRunnerService implements OnModuleInit, OnModuleDestroy {
   private async giveUp(claim: ClaimEntity, err: unknown): Promise<void> {
     const reason = err instanceof Error ? err.message : String(err);
     this.nonces.resync();
-    this.logger.error(
-      `security_event=relayer.submission_failed claim=${claim.id} reason=${reason}`,
-    );
+    await this.alerts.raise({
+      code: 'relayer.submission_failed',
+      severity: EAlertSeverity.ERROR,
+      subject: claim.id,
+      message: 'A claim could not be submitted on-chain',
+      context: { relayer: this.config.id, reason },
+    });
     await this.claims.fail(
       claim.id,
       EClaimFailureReason.SUBMISSION_FAILED,
