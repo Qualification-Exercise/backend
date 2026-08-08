@@ -59,6 +59,18 @@ async function bootstrapWorker(module: unknown, name: string): Promise<void> {
     { bufferLogs: false },
   );
   app.enableShutdownHooks();
+
+  // Nothing else keeps a worker alive. It serves no HTTP, and IntervalLoop
+  // unrefs its timer so tests do not hang — so once the pg pool closes its idle
+  // sockets (~10s) the event loop empties and node exits 0, before a 30s tick
+  // ever fires. The supervisor then restarts it, forever. This handle is the
+  // process's reason to exist; clearing it on the signals keeps `docker stop`
+  // a clean exit instead of a wait for SIGKILL.
+  const keepAlive = setInterval(() => {}, 1 << 30);
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => clearInterval(keepAlive));
+  }
+
   new Logger(name).log(`${name} process started (no inbound HTTP)`);
 
   // Says the process is up *and* that the alert channel works. Without it the
