@@ -86,7 +86,7 @@ export class ClaimsController {
   @ApiOperation({
     summary: 'Get a claim challenge to sign',
     description:
-      'Returns `challengeId`, `nonce`, the exact `message` to sign with the wallet key, and `expiresAt`. Sign the message and post it to `POST /claims`.',
+      'Returns `challengeId`, `nonce`, the exact `message` to sign with the wallet key, `expiresAt`, and the ERC-1271 signing domain (`verifyingContract`, `chainId`). An EOA signs `message` with personal_sign; a smart account (Safe) signs the EIP-712 `SafeMessage { bytes message }` over domain `{ chainId, verifyingContract }` where `message` is `keccak256(EIP-191 hash of the message)` as Safe defines it. Post the signature to `POST /claims`.',
   })
   @ApiQuery({
     name: 'coupon',

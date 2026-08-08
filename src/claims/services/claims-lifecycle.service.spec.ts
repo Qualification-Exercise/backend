@@ -10,6 +10,7 @@ import { ClaimsService } from '@/claims/services/claims.service';
 import { ECouponStatus } from '@/coupons/enums/coupon-status.enum';
 
 const USER = 'user-1';
+const PAYOUT = '0x4b171ea3B579D4aC544D70B61E85E2A9a00927cB';
 const AT = new Date('2026-08-05T10:00:00.000Z');
 
 const claimRow = (over: Partial<ClaimEntity> = {}): ClaimEntity =>
@@ -49,6 +50,9 @@ function build(world: IWorld = {}) {
   const em = {
     couponUpdates,
     query: jest.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes('FROM wallets')) {
+        return [{ address: PAYOUT, srcChainId: '11155111' }];
+      }
       if (sql.includes('FROM coupons')) return world.claimable ?? [];
       if (sql.includes('FROM claims c')) {
         return world.lastClaimAt ? [{ at: world.lastClaimAt }] : [];
@@ -164,6 +168,17 @@ describe('ClaimsService.createChallenge', () => {
     expect(new Date(challenge.expiresAt).getTime()).toBeGreaterThan(Date.now());
     // Expired challenges of this user are cleared on the way in.
     expect(challenges.delete).toHaveBeenCalled();
+  });
+
+  // The wallet needs the EIP-712 domain to build a Safe `SafeMessage`: the
+  // domain chain is the one the Safe lives on, not the reward chain.
+  it('names the payout account and its chain as the ERC-1271 signing domain', async () => {
+    const { service } = build();
+
+    const challenge = await service.createChallenge(USER, 'aaaabbbbccccdddd');
+
+    expect(challenge.verifyingContract).toBe(PAYOUT);
+    expect(challenge.chainId).toBe(11155111);
   });
 
   it('still issues a challenge when no coupon is named', async () => {
