@@ -1,21 +1,19 @@
 ## The API plus the four worker processes that dokploy was never running.
 ##
+## All five are the same production image, same `dist/main.js`; PROCESS_ROLE
+## picks which module bootstraps (src/main.ts:65). No ts-node, no dev stage.
+##
 ## One `.env` for everything, mounted rather than passed through `env_file:`.
 ## Compose interpolates `$` inside env_file values, and the signing keys are
 ## argon2id blobs (`enc:argon2id$m=65536,t=3,p=1$…`) — env_file would deliver
 ## them truncated and every worker would die on "must be an argon2id$… blob".
-## Mounting the file leaves the bytes alone; each Nest process already reads
-## `.env` itself via ConfigModule, so nothing else is needed.
-##
-## The workers are not in `AppModule` on purpose (see the *-isolation.spec.ts
-## files): separate processes, separate RPC endpoints, separate signing keys.
-## They run through ts-node, which the production image does not carry, so they
-## build from the Dockerfile's `dev` stage that keeps `src/` and devDependencies.
+## Mounting the file leaves the bytes alone; ConfigModule reads it directly, and
+## PROCESS_ROLE from `environment:` wins over the `api` in the file because Nest
+## never overwrites a variable already in the process.
 
 x-worker: &worker
   build:
     context: .
-    target: dev
   volumes:
     - ./.env:/app/.env:ro
   restart: unless-stopped
@@ -44,16 +42,20 @@ services:
 
   issuer:
     <<: *worker
-    command: ['npm', 'run', 'issuer']
+    environment:
+      PROCESS_ROLE: issuer
 
   relayer:
     <<: *worker
-    command: ['npm', 'run', 'relayer']
+    environment:
+      PROCESS_ROLE: relayer
 
   settlement:
     <<: *worker
-    command: ['npm', 'run', 'settlement']
+    environment:
+      PROCESS_ROLE: settlement
 
   monitor:
     <<: *worker
-    command: ['npm', 'run', 'monitor']
+    environment:
+      PROCESS_ROLE: monitor
