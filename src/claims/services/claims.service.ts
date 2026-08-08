@@ -14,6 +14,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository, type EntityManager } from 'typeorm';
+import type { PublicClient } from 'viem';
+
+import { ChainClientCache } from '@/common/chain/public-client';
 
 import {
   decodeKeysetCursor,
@@ -119,6 +122,9 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
   private readonly cooldownHours: number;
   private readonly deadlineSeconds: number;
   private readonly sweepIntervalMs: number;
+  private readonly rewardRpcUrl: string;
+  private readonly clients = new ChainClientCache();
+  private warnedNoRpc = false;
   private readonly loop = new IntervalLoop(this.logger);
 
   constructor(
@@ -140,6 +146,29 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     this.cooldownHours = configService.get('CLAIM_COOLDOWN_HOURS');
     this.deadlineSeconds = configService.get('CLAIM_DEADLINE_SECONDS');
     this.sweepIntervalMs = configService.get('CLAIM_SWEEP_INTERVAL_MS');
+    const rpcUrls = JSON.parse(configService.get('RPC_URLS')) as Record<
+      string,
+      string
+    >;
+    this.rewardRpcUrl = rpcUrls[String(this.chainId)] ?? '';
+  }
+
+  /**
+   * Smart-account payout addresses prove ownership through ERC-1271, which
+   * needs a node on the reward chain. Without an RPC_URLS entry only EOA
+   * proofs work.
+   */
+  private ownershipClient(): PublicClient | undefined {
+    if (!this.rewardRpcUrl) {
+      if (!this.warnedNoRpc) {
+        this.warnedNoRpc = true;
+        this.logger.warn(
+          `No RPC_URLS entry for ${this.chainId}; smart-account (ERC-1271) ownership proofs will be rejected`,
+        );
+      }
+      return undefined;
+    }
+    return this.clients.get(this.rewardRpcUrl);
   }
 
   onModuleInit() {
@@ -375,6 +404,7 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
       recipient,
       message,
       dto.signature as `0x${string}`,
+      this.ownershipClient(),
     );
     if (!proven) {
       this.logger.warn(

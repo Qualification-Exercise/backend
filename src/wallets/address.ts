@@ -11,6 +11,7 @@ import {
   sha256,
   verifyMessage,
   type Hex,
+  type PublicClient,
 } from 'viem';
 
 import { EChainKind } from '@/chains/chain-kind.enum';
@@ -118,16 +119,31 @@ export function claimMessage(nonce: string, coupon: string): string {
   ].join('\n');
 }
 
+/**
+ * `client` turns on smart-account proofs. An ERC-4337 wallet (Safe and friends)
+ * signs with its owner EOA, so a plain ecrecover against the account address
+ * never matches: the check has to run on chain via ERC-1271. viem's public
+ * `verifyMessage` does that, and its deployless validator also covers an
+ * ERC-6492-wrapped signature from an account that is still counterfactual.
+ * Without a client the EOA path is all there is — the previous behaviour.
+ */
 export async function verifyOwnership(
   address: string,
   message: string,
   signature: Hex,
+  client?: PublicClient,
 ): Promise<boolean> {
   const { family, address: normalized } = normalizeAddress(address);
 
   try {
     if (family === 'EVM') {
-      return await verifyMessage({
+      const byEoa = await verifyMessage({
+        address: normalized as Hex,
+        message,
+        signature,
+      });
+      if (byEoa || !client) return byEoa;
+      return await client.verifyMessage({
         address: normalized as Hex,
         message,
         signature,

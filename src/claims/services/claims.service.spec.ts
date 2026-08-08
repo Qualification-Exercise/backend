@@ -145,6 +145,7 @@ function build(world: IWorld = {}) {
         CLAIM_COOLDOWN_HOURS: 24,
         CLAIM_DEADLINE_SECONDS: 3600,
         CLAIM_SWEEP_INTERVAL_MS: 0,
+        RPC_URLS: '{}',
       })[key],
   };
 
