@@ -1,0 +1,59 @@
+## The API plus the four worker processes that dokploy was never running.
+##
+## One `.env` for everything, mounted rather than passed through `env_file:`.
+## Compose interpolates `$` inside env_file values, and the signing keys are
+## argon2id blobs (`enc:argon2id$m=65536,t=3,p=1$…`) — env_file would deliver
+## them truncated and every worker would die on "must be an argon2id$… blob".
+## Mounting the file leaves the bytes alone; each Nest process already reads
+## `.env` itself via ConfigModule, so nothing else is needed.
+##
+## The workers are not in `AppModule` on purpose (see the *-isolation.spec.ts
+## files): separate processes, separate RPC endpoints, separate signing keys.
+## They run through ts-node, which the production image does not carry, so they
+## build from the Dockerfile's `dev` stage that keeps `src/` and devDependencies.
+
+x-worker: &worker
+  build:
+    context: .
+    target: dev
+  volumes:
+    - ./.env:/app/.env:ro
+  restart: unless-stopped
+  # Every process has migrationsRun: true, so a cold start races five writers on
+  # the migrations table. The API wins the race by being the only one healthy
+  # first.
+  depends_on:
+    api:
+      condition: service_healthy
+
+services:
+  api:
+    build:
+      context: .
+    volumes:
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  issuer:
+    <<: *worker
+    command: ['npm', 'run', 'issuer']
+
+  relayer:
+    <<: *worker
+    command: ['npm', 'run', 'relayer']
+
+  settlement:
+    <<: *worker
+    command: ['npm', 'run', 'settlement']
+
+  monitor:
+    <<: *worker
+    command: ['npm', 'run', 'monitor']
