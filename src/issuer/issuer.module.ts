@@ -10,6 +10,7 @@ import { validateEnv } from '@/config/env';
 import { Coupon } from '@/coupons/entities/coupon.entity';
 import { DatabaseModule } from '@/database/database.module';
 import { CHAIN_VIEW_CONFIG } from '@/common/chain/chain-view.config';
+import { AlertService } from '@/common/alerts/alert.service';
 import { CounterService } from '@/common/metrics/counter.service';
 import { ServiceCounterEntity } from '@/common/metrics/service-counter.entity';
 import { IssuerConfig } from '@/issuer/issuer-config';
@@ -53,6 +54,7 @@ import { Wallet } from '@/wallets/entities/wallet.entity';
     IssuerConfig,
     // The issuer looks at the chain through its own endpoint, never the API's.
     { provide: CHAIN_VIEW_CONFIG, useExisting: IssuerConfig },
+    AlertService,
     ConfirmationPolicy,
     CounterService,
     PriceSource,

@@ -86,6 +86,7 @@ function build(world: IWorld = {}) {
     verifier as never,
     new NonceManagerService(),
     claims as never,
+    { raise: jest.fn().mockResolvedValue(undefined) } as never,
     { createQueryBuilder: () => qb } as never,
     {
       find: async () => [{ issuerAddress: '0x1', signature: '0xsigA' }],

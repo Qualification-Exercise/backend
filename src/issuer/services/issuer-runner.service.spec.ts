@@ -39,16 +39,18 @@ function build(
   };
 
   const counters = { increment: jest.fn() };
+  const alerts = { raise: jest.fn().mockResolvedValue(undefined) };
 
   const service = new IssuerRunnerService(
     config,
     attestation as never,
     claims as never,
     counters as never,
+    alerts as never,
     claimRepo as never,
     signers as never,
   );
-  return { service, attestation, claims, signers, counters };
+  return { service, attestation, claims, signers, counters, alerts };
 }
 
 describe('IssuerRunnerService', () => {
@@ -62,14 +64,10 @@ describe('IssuerRunnerService', () => {
   });
 
   it('fails the claim with the reason on disagreement, and never retries it', async () => {
-    const { service, claims, attestation } = build({
+    const { service, claims, attestation, alerts } = build({
       signed: false,
       reason: 'AMOUNT_MISMATCH: recomputed 1, claim says 2',
     });
-    const logged: string[] = [];
-    jest
-      .spyOn(service['logger'], 'error')
-      .mockImplementation((msg) => logged.push(String(msg)));
 
     await service.tick();
 
@@ -79,7 +77,11 @@ describe('IssuerRunnerService', () => {
       expect.stringContaining('AMOUNT_MISMATCH'),
     );
     expect(claims.markAttested).not.toHaveBeenCalled();
-    expect(logged.join()).toContain('security_event=attestation.rejected');
+    // The line itself now comes out of AlertService, which logs and notifies
+    // from one place — the runner's job is to hand it the rejection.
+    expect(alerts.raise).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'attestation.rejected' }),
+    );
 
     expect(attestation.attest).toHaveBeenCalledTimes(1);
   });
