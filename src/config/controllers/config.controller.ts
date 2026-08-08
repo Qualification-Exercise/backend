@@ -2,9 +2,8 @@ import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { PAGE_SIZE } from '@/common/pagination/keyset-cursor';
 import type { Env } from '@/config/env';
-
-const PAGE_SIZE = 10;
 
 @ApiTags('config')
 @Controller('config')

@@ -11,6 +11,13 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository, type EntityManager } from 'typeorm';
 
+import {
+  decodeKeysetCursor,
+  encodeKeysetCursor,
+  resolvePageLimit,
+} from '@/common/pagination/keyset-cursor';
+import { isUniqueViolation } from '@/common/database/pg-errors';
+import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import { chainKindOf, normalizeTxHash } from '@/chains';
 import { EChainKind } from '@/chains/chain-kind.enum';
 import { apiError } from '@/common/api-error';
@@ -28,10 +35,6 @@ import { Transaction } from '@/transactions/entities/transaction.entity';
 import { ETxSource, ETxStatus, ETxType } from '@/transactions/enums/tx.enum';
 import { InvalidAddressError, normalizeAddress } from '@/wallets/address';
 import { Wallet } from '@/wallets/entities/wallet.entity';
-
-const PG_UNIQUE_VIOLATION = '23505';
-
-const PAGE_SIZE = 10;
 
 const STALE_LAG_SECONDS = 600;
 
@@ -60,12 +63,6 @@ export interface ITransactionResponse {
   at: string;
 }
 
-function encodeCursor(row: Transaction): string {
-  return Buffer.from(
-    JSON.stringify({ at: row.occurredAt.toISOString(), id: row.id }),
-  ).toString('base64url');
-}
-
 /**
  * History has two writers: the payment poller (what the indexer saw) and the
  * device (`POST /transactions`, what it just broadcast). They meet on
@@ -81,7 +78,7 @@ export class TransactionsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TransactionsService.name);
   private readonly observationTimeoutMs: number;
   private readonly sweepIntervalMs: number;
-  private timer?: NodeJS.Timeout;
+  private readonly loop = new IntervalLoop(this.logger);
 
   constructor(
     @InjectRepository(Transaction)
@@ -99,23 +96,19 @@ export class TransactionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    if (this.sweepIntervalMs <= 0) {
-      this.logger.log('Transaction observation sweep disabled');
-      return;
-    }
-    this.timer = setInterval(() => {
-      void this.sweepUnobserved();
-    }, this.sweepIntervalMs);
-    this.timer.unref?.();
+    const message = 'Transaction observation sweep disabled';
+    if (this.loop.disabled(this.sweepIntervalMs, message)) return;
+
+    this.loop.start(this.sweepIntervalMs, () => this.sweepUnobserved());
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    this.loop.stop();
   }
 
   async list(userId: string, query: ListTransactionsDTO) {
-    const limit = Math.min(query.limit ?? PAGE_SIZE, PAGE_SIZE);
-    const after = query.cursor ? this.decodeCursor(query.cursor) : null;
+    const limit = resolvePageLimit(query.limit);
+    const after = query.cursor ? decodeKeysetCursor(query.cursor) : null;
 
     const qb = this.transactions
       .createQueryBuilder('tx')
@@ -147,7 +140,12 @@ export class TransactionsService implements OnModuleInit, OnModuleDestroy {
       page: {
         limit,
         nextCursor:
-          rows.length > limit ? encodeCursor(page[page.length - 1]) : null,
+          rows.length > limit
+            ? encodeKeysetCursor(
+                page[page.length - 1].occurredAt,
+                page[page.length - 1].id,
+              )
+            : null,
       },
       indexerLag: {
         seconds: lagSeconds,
@@ -240,7 +238,7 @@ export class TransactionsService implements OnModuleInit, OnModuleDestroy {
       await em.save(row);
       return { item: await this.toResponse(row), created: true };
     } catch (err) {
-      if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
+      if (!isUniqueViolation(err)) throw err;
     }
 
     const existing = await em.findOne(Transaction, {
@@ -342,20 +340,6 @@ export class TransactionsService implements OnModuleInit, OnModuleDestroy {
         'The address is not registered to this user on that chain',
       ),
     );
-  }
-
-  private decodeCursor(cursor: string): { at: string; id: string } {
-    try {
-      const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString());
-      if (typeof parsed?.at !== 'string' || typeof parsed?.id !== 'string') {
-        throw new Error('bad shape');
-      }
-      return parsed;
-    } catch {
-      throw new BadRequestException(
-        apiError(EErrorCodes.INVALID_CURSOR, 'Cursor is not one we issued'),
-      );
-    }
   }
 
   private async toResponse(row: Transaction): Promise<ITransactionResponse> {

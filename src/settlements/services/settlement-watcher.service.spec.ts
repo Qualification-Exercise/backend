@@ -75,10 +75,12 @@ function build(world: IWorld = {}) {
     config as never,
   );
 
-  (service as unknown as { client: unknown }).client = {
-    getBlockNumber: async () => 1_000n,
-    getLogs: async () => world.logs ?? [],
-    getBlock: async () => ({ timestamp: 1_785_000_000n }),
+  (service as unknown as { clients: { get: () => unknown } }).clients = {
+    get: () => ({
+      getBlockNumber: async () => 1_000n,
+      getLogs: async () => world.logs ?? [],
+      getBlock: async () => ({ timestamp: 1_785_000_000n }),
+    }),
   };
   jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
 

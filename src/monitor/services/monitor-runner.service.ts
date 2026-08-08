@@ -5,6 +5,7 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 
+import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import { MonitorConfig } from '@/monitor/monitor-config';
 import { HealthSignalsService } from '@/monitor/services/health-signals.service';
 import { PauserService } from '@/monitor/services/pauser.service';
@@ -19,7 +20,7 @@ import { SupplyReconcilerService } from '@/monitor/services/supply-reconciler.se
 @Injectable()
 export class MonitorRunnerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MonitorRunnerService.name);
-  private timer?: NodeJS.Timeout;
+  private readonly loop = new IntervalLoop(this.logger);
   private running = false;
 
   constructor(
@@ -35,21 +36,17 @@ export class MonitorRunnerService implements OnModuleInit, OnModuleDestroy {
       `Monitor up as guardian ${this.config.signer.address} ` +
         `(auto-pause=${this.config.autoPause})`,
     );
-    if (this.config.pollIntervalMs <= 0) {
-      this.logger.log('Monitor loop disabled (MONITOR_POLL_INTERVAL_MS <= 0)');
-      return;
-    }
+    const disabledMessage =
+      'Monitor loop disabled (MONITOR_POLL_INTERVAL_MS <= 0)';
+    if (this.loop.disabled(this.config.pollIntervalMs, disabledMessage)) return;
 
     await this.pauser.assertCanPause();
 
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.config.pollIntervalMs);
-    this.timer.unref?.();
+    this.loop.start(this.config.pollIntervalMs, () => this.tick());
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    this.loop.stop();
   }
 
   async tick(): Promise<void> {

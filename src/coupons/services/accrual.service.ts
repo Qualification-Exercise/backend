@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { isUniqueViolation } from '@/common/database/pg-errors';
+import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import type { Env } from '@/config/env';
 import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
 import {
@@ -19,7 +21,6 @@ import { Coupon } from '@/coupons/entities/coupon.entity';
 import { Payment } from '@/payments/entities/payment.entity';
 import { PriceSnapshot } from '@/pricing/entities/price-snapshot.entity';
 
-const PG_UNIQUE_VIOLATION = '23505';
 const CODE_ATTEMPTS = 5;
 
 const VOIDABLE = [
@@ -37,7 +38,7 @@ export class AccrualService implements OnModuleInit, OnModuleDestroy {
   private readonly batchSize: number;
   private readonly utlUsdRate: string;
   private readonly cashbackBps: number;
-  private timer?: NodeJS.Timeout;
+  private readonly loop = new IntervalLoop(this.logger);
   private running = false;
 
   constructor(
@@ -57,18 +58,14 @@ export class AccrualService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    if (this.intervalMs <= 0) {
-      this.logger.log('Accrual disabled (ACCRUAL_POLL_INTERVAL_MS <= 0)');
-      return;
-    }
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.intervalMs);
-    this.timer.unref?.();
+    const message = 'Accrual disabled (ACCRUAL_POLL_INTERVAL_MS <= 0)';
+    if (this.loop.disabled(this.intervalMs, message)) return;
+
+    this.loop.start(this.intervalMs, () => this.tick());
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    this.loop.stop();
   }
 
   async tick(): Promise<void> {
@@ -209,7 +206,7 @@ export class AccrualService implements OnModuleInit, OnModuleDestroy {
         );
         return coupon;
       } catch (err) {
-        if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
+        if (!isUniqueViolation(err)) throw err;
 
         // A clash on paymentRef means another pass won; that is the point of the
         // constraint. A clash on code is a 1-in-2^80 event worth one more try.

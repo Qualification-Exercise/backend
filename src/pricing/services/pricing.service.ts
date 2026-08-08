@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { isUniqueViolation } from '@/common/database/pg-errors';
+import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import type { Env } from '@/config/env';
 import { Payment } from '@/payments/entities/payment.entity';
 import { PriceSnapshot } from '@/pricing/entities/price-snapshot.entity';
@@ -18,8 +20,6 @@ import {
 } from '@/pricing/price-source';
 import { BitfinexPricingClient } from '@tetherto/wdk-pricing-bitfinex-http';
 import { IGetLivePricingParams } from '../interfaces/pricing.interface';
-
-const PG_UNIQUE_VIOLATION = '23505';
 
 /**
  * Freezes one canonical price per confirmed payment (BE-08).
@@ -33,7 +33,7 @@ export class PricingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PricingService.name);
   private readonly intervalMs: number;
   private readonly batchSize: number;
-  private timer?: NodeJS.Timeout;
+  private readonly loop = new IntervalLoop(this.logger);
   private running = false;
   private client: BitfinexPricingClient;
 
@@ -51,18 +51,14 @@ export class PricingService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     this.client = new BitfinexPricingClient();
-    if (this.intervalMs <= 0) {
-      this.logger.log('Pricing disabled (PRICING_POLL_INTERVAL_MS <= 0)');
-      return;
-    }
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.intervalMs);
-    this.timer.unref?.();
+    const message = 'Pricing disabled (PRICING_POLL_INTERVAL_MS <= 0)';
+    if (this.loop.disabled(this.intervalMs, message)) return;
+
+    this.loop.start(this.intervalMs, () => this.tick());
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    this.loop.stop();
   }
 
   /** Prices every confirmed payment that has no snapshot yet. */
@@ -132,7 +128,7 @@ export class PricingService implements OnModuleInit, OnModuleDestroy {
       await this.snapshots.insert(row);
       return row;
     } catch (err) {
-      if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
+      if (!isUniqueViolation(err)) throw err;
       // Another pass got there first. The first write is the canonical one.
       return this.snapshots.findOne({
         where: { paymentRef: payment.paymentRef },

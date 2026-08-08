@@ -54,7 +54,9 @@ function build(world: IWorld = {}) {
       .fn()
       .mockResolvedValue({ status: 'success' }),
   };
-  (service as unknown as { client: unknown }).client = client;
+  (service as unknown as { clients: { get: () => unknown } }).clients = {
+    get: () => client,
+  };
   jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
 

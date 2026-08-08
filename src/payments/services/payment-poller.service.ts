@@ -14,6 +14,8 @@ import {
   indexerPath,
   paymentRef,
 } from '@/chains';
+import { isUniqueViolation } from '@/common/database/pg-errors';
+import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import type { Env } from '@/config/env';
 import { IndexerService } from '@/indexer/services/indexer.service';
 import type {
@@ -26,8 +28,6 @@ import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
 import { normalizeAddress } from '@/wallets/address';
 import { Wallet } from '@/wallets/entities/wallet.entity';
-
-const PG_UNIQUE_VIOLATION = '23505';
 
 function isAfter(t: ITransfer, cursor: IndexerCursor): boolean {
   if (t.blockNumber !== Number(cursor.lastBlockNumber)) {
@@ -65,7 +65,7 @@ export class PaymentPollerService implements OnModuleInit, OnModuleDestroy {
   private readonly intervalMs: number;
   private readonly pageSize: number;
   private readonly maxMerchantsPerTick: number;
-  private timer?: NodeJS.Timeout;
+  private readonly loop = new IntervalLoop(this.logger);
   private running = false;
   private readonly warnedMerchants = new Set<string>();
 
@@ -88,20 +88,14 @@ export class PaymentPollerService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    if (this.intervalMs <= 0) {
-      this.logger.log(
-        'Payment polling disabled (PAYMENT_POLL_INTERVAL_MS <= 0)',
-      );
-      return;
-    }
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.intervalMs);
-    this.timer.unref?.();
+    const message = 'Payment polling disabled (PAYMENT_POLL_INTERVAL_MS <= 0)';
+    if (this.loop.disabled(this.intervalMs, message)) return;
+
+    this.loop.start(this.intervalMs, () => this.tick());
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    this.loop.stop();
   }
 
   async tick(): Promise<void> {
@@ -250,7 +244,7 @@ export class PaymentPollerService implements OnModuleInit, OnModuleDestroy {
         lastSeenAt: now,
       });
     } catch (err) {
-      if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
+      if (!isUniqueViolation(err)) throw err;
       // Overlapping poll windows are expected, so a duplicate is a no-op.
       await this.payments.update(
         { srcChainId, txHash, outputIndex },

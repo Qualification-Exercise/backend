@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { isUniqueViolation } from '@/common/database/pg-errors';
 import { chainKindOf, indexerPath } from '@/chains';
 import { apiError } from '@/common/api-error';
 import { EErrorCodes } from '@/common/enums/error-codes.enum';
@@ -17,8 +18,6 @@ import { MerchantResponseDTO } from '@/payments/dtos/merchant.response.dto';
 import type { RegisterMerchantDTO } from '@/payments/dtos/register-merchant.dto';
 import { Merchant } from '@/payments/entities/merchant.entity';
 import { CHAIN_KIND_OF_FAMILY, normalizeAddress } from '@/wallets/address';
-
-const PG_UNIQUE_VIOLATION = '23505';
 
 @Injectable()
 export class MerchantsService {
@@ -75,7 +74,7 @@ export class MerchantsService {
     try {
       await this.merchants.insert(merchant);
     } catch (err) {
-      if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
+      if (!isUniqueViolation(err)) throw err;
       throw new ConflictException(
         apiError(
           EErrorCodes.MERCHANT_ALREADY_REGISTERED,

@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { createPublicClient, http, type PublicClient } from 'viem';
+import type { PublicClient } from 'viem';
 
+import { ChainClientCache } from '@/common/chain/public-client';
 import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
 import { BPS_DENOMINATOR } from '@/coupons/accrual';
 import { Coupon } from '@/coupons/entities/coupon.entity';
@@ -22,7 +23,7 @@ import { PauserService } from '@/monitor/services/pauser.service';
 @Injectable()
 export class SupplyReconcilerService {
   private readonly logger = new Logger(SupplyReconcilerService.name);
-  private client?: PublicClient;
+  private readonly clients = new ChainClientCache();
 
   constructor(
     private readonly config: MonitorConfig,
@@ -117,9 +118,6 @@ export class SupplyReconcilerService {
   }
 
   private rpc(): PublicClient {
-    this.client ??= createPublicClient({
-      transport: http(this.config.rewardRpcUrl),
-    });
-    return this.client;
+    return this.clients.get(this.config.rewardRpcUrl);
   }
 }

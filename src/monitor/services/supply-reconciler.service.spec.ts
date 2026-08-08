@@ -38,21 +38,23 @@ function build(world: IWorld = {}) {
     coupons as never,
   );
 
-  (service as unknown as { client: unknown }).client = {
-    readContract: async ({ functionName }: { functionName: string }) => {
-      switch (functionName) {
-        case 'totalSupply':
-          return world.supply ?? 1_000_000_000_000_000_000n;
-        case 'epochCap':
-          return world.epochCap ?? 1000n * 10n ** 18n;
-        case 'currentEpoch':
-          return 20_000n;
-        case 'mintedInEpoch':
-          return world.minted ?? 0n;
-        default:
-          throw new Error(`unexpected call: ${functionName}`);
-      }
-    },
+  (service as unknown as { clients: { get: () => unknown } }).clients = {
+    get: () => ({
+      readContract: async ({ functionName }: { functionName: string }) => {
+        switch (functionName) {
+          case 'totalSupply':
+            return world.supply ?? 1_000_000_000_000_000_000n;
+          case 'epochCap':
+            return world.epochCap ?? 1000n * 10n ** 18n;
+          case 'currentEpoch':
+            return 20_000n;
+          case 'mintedInEpoch':
+            return world.minted ?? 0n;
+          default:
+            throw new Error(`unexpected call: ${functionName}`);
+        }
+      },
+    }),
   };
   jest.spyOn(service['logger'], 'debug').mockImplementation(() => undefined);
 

@@ -25,12 +25,11 @@ import {
   CurrentUser,
   type IAuthUser,
 } from '@/auth/decorators/current-user.decorator';
+import { HOUR_MS } from '@/common/time';
 import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
 import { CreateTransactionDTO } from '@/transactions/dtos/create-transaction.dto';
 import { ListTransactionsDTO } from '@/transactions/dtos/list-transactions.dto';
 import { TransactionsService } from '@/transactions/services/transactions.service';
-
-const ONE_HOUR_MS = 3_600_000;
 
 @ApiTags('transactions')
 @ApiBearerAuth('jwt')
@@ -49,7 +48,7 @@ export class TransactionsController {
   }
 
   @Post()
-  @Throttle({ default: { limit: 30, ttl: ONE_HOUR_MS } })
+  @Throttle({ default: { limit: 30, ttl: HOUR_MS } })
   @ApiOperation({
     summary: 'Record an on-chain payment',
     description:

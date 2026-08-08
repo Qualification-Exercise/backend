@@ -1,13 +1,13 @@
 import { timingSafeEqual } from 'node:crypto';
 
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
+import {
+  decodeKeysetCursor,
+  encodeKeysetCursor,
+} from '@/common/pagination/keyset-cursor';
 import { apiError } from '@/common/api-error';
 import { decimalsFor, toScaled, toWad } from '@/coupons/accrual';
 import { Coupon } from '@/coupons/entities/coupon.entity';
@@ -54,12 +54,6 @@ interface IListRow {
   utlAmount: string | null;
   expiresAt: Date | null;
   sortAt: Date;
-}
-
-function encodeCursor(row: IListRow): string {
-  return Buffer.from(
-    JSON.stringify({ at: new Date(row.sortAt).toISOString(), id: row.id }),
-  ).toString('base64url');
 }
 
 /**
@@ -111,7 +105,7 @@ export class CouponsService {
    */
   async list(userId: string, query: ListCouponsDTO) {
     const limit = Math.min(query.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-    const after = query.cursor ? this.decodeCursor(query.cursor) : null;
+    const after = query.cursor ? decodeKeysetCursor(query.cursor) : null;
 
     // Keyset pagination over (sortAt, id): a coupon issued mid-scroll cannot
     // shift a row from one page onto another, which offset paging would allow.
@@ -158,7 +152,12 @@ export class CouponsService {
       items: await this.decorate(page),
       indexerLag: { seconds: await this.indexerLagSeconds() },
       nextCursor:
-        rows.length > limit ? encodeCursor(page[page.length - 1]) : null,
+        rows.length > limit
+          ? encodeKeysetCursor(
+              page[page.length - 1].sortAt,
+              page[page.length - 1].id,
+            )
+          : null,
     };
   }
 
@@ -219,20 +218,6 @@ export class CouponsService {
     return new NotFoundException(
       apiError('COUPON_NOT_FOUND', 'Unknown coupon or code'),
     );
-  }
-
-  private decodeCursor(cursor: string): { at: string; id: string } {
-    try {
-      const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString());
-      if (typeof parsed?.at !== 'string' || typeof parsed?.id !== 'string') {
-        throw new Error('bad shape');
-      }
-      return parsed;
-    } catch {
-      throw new BadRequestException(
-        apiError('INVALID_CURSOR', 'Cursor is not one we issued'),
-      );
-    }
   }
 
   private toRow(coupon: Coupon): IListRow {

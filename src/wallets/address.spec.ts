@@ -1,3 +1,4 @@
+import { getAddress, type PublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import {
@@ -113,6 +114,51 @@ describe('verifyOwnership', () => {
     });
     await expect(
       verifyOwnership(account.address, message, signature),
+    ).resolves.toBe(false);
+  });
+
+  it('falls back to on-chain ERC-1271 when the EOA recover misses', async () => {
+    // A Safe signs with its owner EOA, so the recovered address is never the
+    // account address; only the contract can confirm the owner.
+    const safe = '0x1111111111111111111111111111111111111111';
+    const signature = await account.signMessage({ message });
+    const client = {
+      verifyMessage: jest.fn().mockResolvedValue(true),
+    } as unknown as PublicClient;
+
+    await expect(
+      verifyOwnership(safe, message, signature, client),
+    ).resolves.toBe(true);
+    expect(client.verifyMessage).toHaveBeenCalledWith({
+      address: getAddress(safe),
+      message,
+      signature,
+    });
+  });
+
+  it('does not call the chain when the EOA signature already matches', async () => {
+    const signature = await account.signMessage({ message });
+    const client = { verifyMessage: jest.fn() } as unknown as PublicClient;
+
+    await expect(
+      verifyOwnership(account.address, message, signature, client),
+    ).resolves.toBe(true);
+    expect(client.verifyMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the contract itself denies the signature', async () => {
+    const signature = await other.signMessage({ message });
+    const client = {
+      verifyMessage: jest.fn().mockResolvedValue(false),
+    } as unknown as PublicClient;
+
+    await expect(
+      verifyOwnership(
+        '0x1111111111111111111111111111111111111111',
+        message,
+        signature,
+        client,
+      ),
     ).resolves.toBe(false);
   });
 

@@ -4,6 +4,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, type EntityManager } from 'typeorm';
 
+import { hoursToMs } from '@/common/time';
 import { apiError } from '@/common/api-error';
 import { EErrorCodes } from '@/common/enums/error-codes.enum';
 import { IdempotencyKeyEntity } from '@/idempotency/entities/idempotency-key.entity';
@@ -31,7 +32,7 @@ export class IdempotencyService {
     ttlHours: number = DEFAULT_TTL_HOURS,
   ): Promise<T> {
     return this.keys.manager.transaction(async (em) => {
-      const expiresAt = new Date(Date.now() + ttlHours * 3_600_000);
+      const expiresAt = new Date(Date.now() + hoursToMs(ttlHours));
       const claimed: { id: string }[] = await em.query(
         `INSERT INTO idempotency_keys
            (user_id, idempotency_key, request_hash, response_data, expires_at)

@@ -1,12 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  createPublicClient,
-  encodeFunctionData,
-  http,
-  type Hex,
-  type PublicClient,
-} from 'viem';
+import { encodeFunctionData, type Hex, type PublicClient } from 'viem';
 
+import { ChainClientCache } from '@/common/chain/public-client';
 import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
 import { MonitorConfig } from '@/monitor/monitor-config';
 import { PAUSER_ABI } from '@/monitor/monitor.abi';
@@ -23,7 +18,7 @@ import { PAUSER_ABI } from '@/monitor/monitor.abi';
 @Injectable()
 export class PauserService {
   private readonly logger = new Logger(PauserService.name);
-  private client?: PublicClient;
+  private readonly clients = new ChainClientCache();
   private pausing?: Promise<void>;
 
   constructor(
@@ -132,9 +127,6 @@ export class PauserService {
   }
 
   private rpc(): PublicClient {
-    this.client ??= createPublicClient({
-      transport: http(this.config.rewardRpcUrl),
-    });
-    return this.client;
+    return this.clients.get(this.config.rewardRpcUrl);
   }
 }

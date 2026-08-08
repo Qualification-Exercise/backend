@@ -1,6 +1,3 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { BitfinexPricingClient } from '@tetherto/wdk-pricing-bitfinex-http';
-
 /**
  * Asset→USD prices from the WDK pricing sources (BE-08).
  *
@@ -8,6 +5,10 @@ import { BitfinexPricingClient } from '@tetherto/wdk-pricing-bitfinex-http';
  * directly: the WDK client already knows the exchange's symbol quirks, and
  * reusing it keeps our number and the wallet's number from drifting apart.
  */
+import { Injectable, Logger } from '@nestjs/common';
+import { BitfinexPricingClient } from '@tetherto/wdk-pricing-bitfinex-http';
+
+import { HOUR_MS } from '@/common/time';
 
 export interface IPriceQuote {
   price: string;
@@ -22,7 +23,7 @@ export class PriceUnavailableError extends Error {}
  * codes resolve to null rather than failing, so the mapping lives in one place
  * and an unmapped asset is an explicit error.
  */
-const BITFINEX_SYMBOL: Record<string, string> = {
+const BITFINEX_SYMBOL: Record<string, string | undefined> = {
   BTC: 'BTC',
   USDT: 'UST',
   XAUT: 'XAUT',
@@ -30,7 +31,7 @@ const BITFINEX_SYMBOL: Record<string, string> = {
 };
 
 /** Indexer `{token}` path segment → our canonical asset symbol. */
-const ASSET_BY_TOKEN: Record<string, string> = {
+const ASSET_BY_TOKEN: Record<string, string | undefined> = {
   btc: 'BTC',
   usdt: 'USDT',
   xaut: 'XAUT',
@@ -44,19 +45,13 @@ export function assetForToken(token: string): string {
   return asset;
 }
 
-/**
- * `@tetherto/wdk-pricing-provider` declares history points as
- * `{ timestamp, price }`, but the Bitfinex client actually returns
- * `{ ts, price }` — its own types disagree with its implementation. Read both
- * rather than trusting either, so a fix upstream does not silently break pricing.
- */
-interface IHistoricalPoint {
+interface IPricePoint {
   price: number;
   ts?: number;
   timestamp?: number;
 }
 
-function timestampOf(point: IHistoricalPoint): number | undefined {
+function timestampOf(point: IPricePoint): number | undefined {
   return point.ts ?? point.timestamp;
 }
 
@@ -65,8 +60,8 @@ function timestampOf(point: IHistoricalPoint): number | undefined {
  * when the window is wider than an hour — so ask for several hours and pick from
  * the result rather than requesting a point.
  */
-const WINDOW_BEFORE_MS = 6 * 60 * 60 * 1000;
-const WINDOW_AFTER_MS = 60 * 60 * 1000;
+const WINDOW_BEFORE_MS = 6 * HOUR_MS;
+const WINDOW_AFTER_MS = HOUR_MS;
 
 @Injectable()
 export class PriceSource {
@@ -87,12 +82,12 @@ export class PriceSource {
     }
 
     const target = at.getTime();
-    let points: IHistoricalPoint[];
+    let points: IPricePoint[];
     try {
       points = (await this.client.getHistoricalPrice(symbol, 'USD', {
         start: target - WINDOW_BEFORE_MS,
         end: target + WINDOW_AFTER_MS,
-      })) as IHistoricalPoint[];
+      })) as IPricePoint[];
     } catch (err) {
       // A provider outage is a handled state, not a crash.
       throw new PriceUnavailableError(

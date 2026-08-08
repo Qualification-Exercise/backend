@@ -1,10 +1,11 @@
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createPublicClient, http, type PublicClient } from 'viem';
+import type { PublicClient } from 'viem';
 
 import { firstValueFrom } from 'rxjs';
 
+import { ChainClientCache } from '@/common/chain/public-client';
 import { chainBySrcChainId, chainKindOf } from '@/chains';
 import { EChainKind } from '@/chains/chain-kind.enum';
 import type { Env } from '@/config/env';
@@ -16,7 +17,7 @@ export class ConfirmationPolicy {
   private readonly logger = new Logger(ConfirmationPolicy.name);
   private readonly depths: Record<string, number>;
   private readonly rpcUrls: Record<string, string>;
-  private readonly clients = new Map<number, PublicClient>();
+  private readonly clients = new ChainClientCache();
   private readonly heads = new Map<number, { value: number; at: number }>();
   private readonly warned = new Set<number>();
 
@@ -123,9 +124,6 @@ export class ConfirmationPolicy {
   }
 
   private clientFor(srcChainId: number): PublicClient | null {
-    const existing = this.clients.get(srcChainId);
-    if (existing) return existing;
-
     const url = this.rpcUrls[String(srcChainId)];
     if (!url) {
       this.warnOnce(
@@ -146,9 +144,7 @@ export class ConfirmationPolicy {
       return null;
     }
 
-    const client = createPublicClient({ transport: http(url) });
-    this.clients.set(srcChainId, client);
-    return client;
+    return this.clients.get(url);
   }
 
   private warnOnce(srcChainId: number, message: string) {

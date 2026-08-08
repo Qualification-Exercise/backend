@@ -1,12 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
-  createPublicClient,
-  decodeEventLog,
-  http,
-  parseAbi,
-  type Hex,
-  type PublicClient,
-} from 'viem';
+import { decodeEventLog, parseAbi, type Hex, type PublicClient } from 'viem';
 
 import {
   chainBySrcChainId,
@@ -14,6 +7,7 @@ import {
   normalizeTxHash,
   paymentRef,
 } from '@/chains';
+import { ChainClientCache } from '@/common/chain/public-client';
 import { EChainKind } from '@/chains/chain-kind.enum';
 import { decimalsFor, toScaled } from '@/coupons/accrual';
 import {
@@ -54,7 +48,7 @@ function canonical(address: string): string {
 @Injectable()
 export class PaymentVerifierService {
   private readonly logger = new Logger(PaymentVerifierService.name);
-  private readonly clients = new Map<number, PublicClient>();
+  private readonly clients = new ChainClientCache();
 
   constructor(
     @Inject(CHAIN_VIEW_CONFIG)
@@ -218,17 +212,12 @@ export class PaymentVerifierService {
   }
 
   private rpc(srcChainId: number): PublicClient {
-    const existing = this.clients.get(srcChainId);
-    if (existing) return existing;
-
     const url = this.config.rpcUrlFor(srcChainId);
     if (!url) {
       throw new VerificationError(
         `NO_NODE: ${this.config.id} has no RPC endpoint for chain ${srcChainId}`,
       );
     }
-    const client = createPublicClient({ transport: http(url) });
-    this.clients.set(srcChainId, client);
-    return client;
+    return this.clients.get(url);
   }
 }

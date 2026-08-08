@@ -7,14 +7,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
-import {
-  createPublicClient,
-  http,
-  parseAbiItem,
-  type Hex,
-  type PublicClient,
-} from 'viem';
+import { parseAbiItem, type Hex, type PublicClient } from 'viem';
 
+import { ChainClientCache } from '@/common/chain/public-client';
+import { isUniqueViolation } from '@/common/database/pg-errors';
+import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
 import {
   EClaimFailureReason,
@@ -27,7 +24,6 @@ import type { Env } from '@/config/env';
 import { SettlementEntity } from '@/settlements/entities/settlement.entity';
 
 const CURSOR_NAME = 'settlement-watcher';
-const PG_UNIQUE_VIOLATION = '23505';
 
 const CLAIMED_EVENT = parseAbiItem(
   'event Claimed(bytes32 indexed paymentRef, address indexed recipient, uint256 amount)',
@@ -52,8 +48,8 @@ export class SettlementWatcherService implements OnModuleInit, OnModuleDestroy {
   private readonly blockRange: number;
   private readonly timeoutMs: number;
   private readonly startBlock: number;
-  private client?: PublicClient;
-  private timer?: NodeJS.Timeout;
+  private readonly clients = new ChainClientCache();
+  private readonly loop = new IntervalLoop(this.logger);
   private running = false;
 
   constructor(
@@ -77,18 +73,14 @@ export class SettlementWatcherService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    if (this.intervalMs <= 0 || !this.rpcUrl) {
-      this.logger.log('Settlement watcher disabled');
-      return;
-    }
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.intervalMs);
-    this.timer.unref?.();
+    const intervalMs = this.rpcUrl ? this.intervalMs : 0;
+    if (this.loop.disabled(intervalMs, 'Settlement watcher disabled')) return;
+
+    this.loop.start(intervalMs, () => this.tick());
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    this.loop.stop();
   }
 
   async tick(): Promise<void> {
@@ -195,7 +187,7 @@ export class SettlementWatcherService implements OnModuleInit, OnModuleDestroy {
       });
     } catch (err) {
       // UNIQUE (payment_ref): re-reading a range after a restart is expected.
-      if ((err as { code?: string }).code !== PG_UNIQUE_VIOLATION) throw err;
+      if (!isUniqueViolation(err)) throw err;
     }
   }
 
@@ -242,7 +234,6 @@ export class SettlementWatcherService implements OnModuleInit, OnModuleDestroy {
   }
 
   private rpc(): PublicClient {
-    this.client ??= createPublicClient({ transport: http(this.rpcUrl) });
-    return this.client;
+    return this.clients.get(this.rpcUrl);
   }
 }

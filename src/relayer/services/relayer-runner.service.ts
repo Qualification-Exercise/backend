@@ -6,14 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  createPublicClient,
-  encodeFunctionData,
-  http,
-  type Hex,
-  type PublicClient,
-} from 'viem';
+import { encodeFunctionData, type Hex, type PublicClient } from 'viem';
 
+import { ChainClientCache } from '@/common/chain/public-client';
+import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
 import {
@@ -46,8 +42,8 @@ import { ESignerRole } from '@/signers/enums/signer-role.enum';
 @Injectable()
 export class RelayerRunnerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RelayerRunnerService.name);
-  private client?: PublicClient;
-  private timer?: NodeJS.Timeout;
+  private readonly clients = new ChainClientCache();
+  private readonly loop = new IntervalLoop(this.logger);
   private running = false;
 
   constructor(
@@ -73,12 +69,9 @@ export class RelayerRunnerService implements OnModuleInit, OnModuleDestroy {
       `Relayer ${this.config.id} up as ${this.config.signer.address} ` +
         `(reward-rpc=${redact(this.config.rewardRpcUrl)})`,
     );
-    if (this.config.pollIntervalMs <= 0) {
-      this.logger.log(
-        'Submission loop disabled (RELAYER_POLL_INTERVAL_MS <= 0)',
-      );
-      return;
-    }
+    const disabledMessage =
+      'Submission loop disabled (RELAYER_POLL_INTERVAL_MS <= 0)';
+    if (this.loop.disabled(this.config.pollIntervalMs, disabledMessage)) return;
 
     const registered = await this.signers.findOne({
       where: {
@@ -93,14 +86,11 @@ export class RelayerRunnerService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.config.pollIntervalMs);
-    this.timer.unref?.();
+    this.loop.start(this.config.pollIntervalMs, () => this.tick());
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    this.loop.stop();
   }
 
   async tick(): Promise<void> {
@@ -269,10 +259,7 @@ export class RelayerRunnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private rpc(): PublicClient {
-    this.client ??= createPublicClient({
-      transport: http(this.config.rewardRpcUrl),
-    });
-    return this.client;
+    return this.clients.get(this.config.rewardRpcUrl);
   }
 }
 
