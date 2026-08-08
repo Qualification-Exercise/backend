@@ -1,5 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { decodeEventLog, parseAbi, type Hex, type PublicClient } from 'viem';
+import {
+  decodeEventLog,
+  parseAbi,
+  TransactionReceiptNotFoundError,
+  type Hex,
+  type PublicClient,
+} from 'viem';
 
 import {
   chainBySrcChainId,
@@ -205,9 +211,17 @@ export class PaymentVerifierService {
         hash: normalizeTxHash(txHash) as Hex,
       });
     } catch (err) {
-      throw new VerificationError(
-        `RECEIPT_UNAVAILABLE: ${txHash} not found on this issuer's node (${String(err)})`,
-      );
+      // "The chain does not have this transaction" is a verdict; "the node did
+      // not answer" is not. Rate limits and timeouts used to land here as a
+      // VerificationError, which failed the claim permanently and cost the user
+      // their coupon over someone else's 429. Only the former is a rejection —
+      // the rest propagates, the tick logs it, and the next pass tries again.
+      if (err instanceof TransactionReceiptNotFoundError) {
+        throw new VerificationError(
+          `RECEIPT_UNAVAILABLE: ${txHash} not found on this issuer's node`,
+        );
+      }
+      throw err;
     }
   }
 
