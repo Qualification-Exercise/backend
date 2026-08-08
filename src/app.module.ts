@@ -29,8 +29,8 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
     }),
     ThrottlerModule.forRoot([
       {
-        ttl: 3600000,
-        limit: 10,
+        ttl: 60_000,
+        limit: 60,
       },
     ]),
     DatabaseModule,
