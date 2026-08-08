@@ -2,6 +2,7 @@ import {
   encodeAbiParameters,
   encodeEventTopics,
   parseAbi,
+  TransactionReceiptNotFoundError,
   type Hex,
 } from 'viem';
 
@@ -66,6 +67,7 @@ function build(
     blockHash?: string;
     head?: number;
     receiptThrows?: boolean;
+    receiptRpcFails?: boolean;
   } = {},
 ) {
   const config = {
@@ -84,7 +86,9 @@ function build(
 
   const client = {
     getTransactionReceipt: async () => {
-      if (chain.receiptThrows) throw new Error('not found');
+      if (chain.receiptThrows)
+        throw new TransactionReceiptNotFoundError({ hash: TX });
+      if (chain.receiptRpcFails) throw new Error('Too Many Requests');
       return (
         chain.receipt ?? {
           status: 'success',
@@ -121,6 +125,14 @@ describe('PaymentVerifierService', () => {
     await expect(
       build({ receiptThrows: true }).verify(payment(), MERCHANTS),
     ).rejects.toThrow(/RECEIPT_UNAVAILABLE/);
+  });
+
+  // A rate-limited node is not a verdict about the payment: turning it into a
+  // VerificationError would fail the claim permanently over someone else's 429.
+  it('propagates an unreachable node instead of rejecting the payment', async () => {
+    await expect(
+      build({ receiptRpcFails: true }).verify(payment(), MERCHANTS),
+    ).rejects.toThrow(/Too Many Requests/);
   });
 
   it('refuses a block that is no longer canonical', async () => {
