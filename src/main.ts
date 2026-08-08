@@ -58,6 +58,18 @@ async function bootstrapWorker(module: unknown, name: string): Promise<void> {
     { bufferLogs: false },
   );
   app.enableShutdownHooks();
+
+  // A worker has no HTTP server, and IntervalLoop unrefs its timer so tests do
+  // not hang — which leaves nothing ref'd once the pool goes idle, and node
+  // exits cleanly before the first tick ever fires. This handle is the
+  // process's reason to stay alive; the loops do the actual work. Clearing it
+  // on the termination signals keeps `docker stop` a clean exit rather than a
+  // ten-second wait for SIGKILL.
+  const keepAlive = setInterval(() => {}, 1 << 30);
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => clearInterval(keepAlive));
+  }
+
   new Logger(name).log(`${name} process started (no inbound HTTP)`);
 }
 
