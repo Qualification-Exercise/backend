@@ -7,6 +7,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { CounterService } from '@/common/metrics/counter.service';
+import {
+  COUNTER_ISSUER_CLAIMS_SEEN,
+  COUNTER_ISSUER_TICKS,
+} from '@/common/metrics/service-counter.entity';
 import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
 import {
@@ -29,6 +34,7 @@ export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
     private readonly config: IssuerConfig,
     private readonly attestation: AttestationService,
     private readonly claims: ClaimsService,
+    private readonly counters: CounterService,
     @InjectRepository(ClaimEntity)
     private readonly claimRepo: Repository<ClaimEntity>,
     @InjectRepository(SignerEntity)
@@ -75,7 +81,10 @@ export class IssuerRunnerService implements OnModuleInit, OnModuleDestroy {
     }
     this.running = true;
     try {
-      for (const claim of await this.pending()) {
+      this.counters.increment(COUNTER_ISSUER_TICKS);
+      const pending = await this.pending();
+      this.counters.increment(COUNTER_ISSUER_CLAIMS_SEEN, pending.length);
+      for (const claim of pending) {
         await this.handle(claim);
       }
     } catch (err) {

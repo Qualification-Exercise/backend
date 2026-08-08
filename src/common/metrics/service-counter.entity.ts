@@ -23,3 +23,11 @@ export class ServiceCounterEntity {
 export const COUNTER_INDEXER_REQUESTS = 'indexer.requests';
 export const COUNTER_INDEXER_ERRORS = 'indexer.errors';
 export const COUNTER_INDEXER_RATE_LIMITED = 'indexer.rate_limited';
+
+// The issuer's only trace in the database used to be a signature, so "the loop
+// is running but signing nothing" and "the process is dead" looked identical
+// from psql — which is the one place you can look when the host's logs are not
+// yours. `ticks` is the heartbeat (its updated_at is the last pass) and
+// `claims_seen` says whether the pass found anything to work on.
+export const COUNTER_ISSUER_TICKS = 'issuer.ticks';
+export const COUNTER_ISSUER_CLAIMS_SEEN = 'issuer.claims_seen';
