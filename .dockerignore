@@ -6,7 +6,9 @@ coverage
 .gitignore
 README.md
 .env
-.env.example
+.env.*
+!.env.example
+!.env.*.example
 .DS_Store
 infra
 docs
