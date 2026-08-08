@@ -9,6 +9,9 @@ export enum EAlertSeverity {
   CRITICAL = 'critical',
   ERROR = 'error',
   WARNING = 'warning',
+  // Not a problem — a lifecycle fact. A channel that only ever carries bad news
+  // is indistinguishable from a broken channel until the day you need it.
+  INFO = 'info',
 }
 
 export interface IAlert {
@@ -23,6 +26,7 @@ const SEVERITY_ICON: Record<EAlertSeverity, string> = {
   [EAlertSeverity.CRITICAL]: '🚨',
   [EAlertSeverity.ERROR]: '❗',
   [EAlertSeverity.WARNING]: '⚠️',
+  [EAlertSeverity.INFO]: 'ℹ️',
 };
 
 function escapeHtml(value: string): string {
@@ -61,7 +65,8 @@ export class AlertService {
       `subject=${alert.subject} message="${alert.message}"` +
       (alert.context ? ` context=${JSON.stringify(alert.context)}` : '');
 
-    if (alert.severity === EAlertSeverity.WARNING) this.logger.warn(line);
+    if (alert.severity === EAlertSeverity.INFO) this.logger.log(line);
+    else if (alert.severity === EAlertSeverity.WARNING) this.logger.warn(line);
     else this.logger.error(line);
 
     if (!this.webhookUrl || !this.http) return;

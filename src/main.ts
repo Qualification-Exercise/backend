@@ -2,6 +2,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '@/app.module';
+import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
 import { EProcessRole } from '@/config/process-role.enum';
 import { validateEnv } from '@/config/env';
 import { setupSwagger } from '@/common/utils/swagger.util';
@@ -59,6 +60,17 @@ async function bootstrapWorker(module: unknown, name: string): Promise<void> {
   );
   app.enableShutdownHooks();
   new Logger(name).log(`${name} process started (no inbound HTTP)`);
+
+  // Says the process is up *and* that the alert channel works. Without it the
+  // only proof of delivery is an incident, which is the worst moment to find
+  // out the webhook was misconfigured. Every worker module provides
+  // AlertService, so this is not optional wiring.
+  await app.get(AlertService).raise({
+    code: 'service.started',
+    severity: EAlertSeverity.INFO,
+    subject: name,
+    message: `${name} is up and watching`,
+  });
 }
 
 async function bootstrap() {
