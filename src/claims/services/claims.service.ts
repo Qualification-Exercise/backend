@@ -57,6 +57,19 @@ export interface IClaimChallengeResponse {
   nonce: string;
   message: string;
   expiresAt: string;
+  /**
+   * ERC-1271 signing context. A smart account (Safe) signs with its owner EOA,
+   * so the payout address never ecrecovers from a plain personal_sign: the
+   * wallet must sign the EIP-712 `SafeMessage` bound to this domain, and the
+   * proof is then checked on chain against `verifyingContract`.
+   */
+  verifyingContract: string;
+  chainId: number;
+}
+
+interface IPayoutWallet {
+  address: string;
+  chainId: number;
 }
 
 export interface IClaimCreatedResponse {
@@ -122,7 +135,7 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
   private readonly cooldownHours: number;
   private readonly deadlineSeconds: number;
   private readonly sweepIntervalMs: number;
-  private readonly rewardRpcUrl: string;
+  private readonly rpcUrls: Record<string, string>;
   private readonly clients = new ChainClientCache();
   private warnedNoRpc = false;
   private readonly loop = new IntervalLoop(this.logger);
@@ -146,11 +159,10 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     this.cooldownHours = configService.get('CLAIM_COOLDOWN_HOURS');
     this.deadlineSeconds = configService.get('CLAIM_DEADLINE_SECONDS');
     this.sweepIntervalMs = configService.get('CLAIM_SWEEP_INTERVAL_MS');
-    const rpcUrls = JSON.parse(configService.get('RPC_URLS')) as Record<
+    this.rpcUrls = JSON.parse(configService.get('RPC_URLS')) as Record<
       string,
       string
     >;
-    this.rewardRpcUrl = rpcUrls[String(this.chainId)] ?? '';
   }
 
   /**
@@ -158,17 +170,18 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
    * needs a node on the reward chain. Without an RPC_URLS entry only EOA
    * proofs work.
    */
-  private ownershipClient(): PublicClient | undefined {
-    if (!this.rewardRpcUrl) {
+  private ownershipClient(chainId: number): PublicClient | undefined {
+    const url = this.rpcUrls[String(chainId)] ?? '';
+    if (!url) {
       if (!this.warnedNoRpc) {
         this.warnedNoRpc = true;
         this.logger.warn(
-          `No RPC_URLS entry for ${this.chainId}; smart-account (ERC-1271) ownership proofs will be rejected`,
+          `No RPC_URLS entry for ${chainId}; smart-account (ERC-1271) ownership proofs will be rejected`,
         );
       }
       return undefined;
     }
-    return this.clients.get(this.rewardRpcUrl);
+    return this.clients.get(url);
   }
 
   onModuleInit() {
@@ -188,6 +201,8 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
   ): Promise<IClaimChallengeResponse> {
     await this.challenges.delete({ userId, expiresAt: LessThan(new Date()) });
 
+    const payout = await this.resolveRecipient(this.claims.manager, userId);
+
     const challenge = await this.challenges.save(
       this.challenges.create({
         userId,
@@ -202,6 +217,8 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
       nonce: challenge.nonce,
       message: claimMessage(challenge.nonce, normalizedForLookup(coupon)),
       expiresAt: challenge.expiresAt.toISOString(),
+      verifyingContract: payout.address,
+      chainId: payout.chainId,
     };
   }
 
@@ -401,14 +418,14 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     const message = claimMessage(nonce, coupon.code ?? coupon.id);
 
     const proven = await verifyOwnership(
-      recipient,
+      recipient.address,
       message,
       dto.signature as `0x${string}`,
-      this.ownershipClient(),
+      this.ownershipClient(recipient.chainId),
     );
     if (!proven) {
       this.logger.warn(
-        `security_event=claim.signature_invalid userId=${userId} recipient=${recipient}`,
+        `security_event=claim.signature_invalid userId=${userId} recipient=${recipient.address} chainId=${recipient.chainId}`,
       );
       throw new BadRequestException(
         apiError(
@@ -418,20 +435,20 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    await this.wallets.confirmOwnership(em, userId, recipient);
-    return recipient;
+    await this.wallets.confirmOwnership(em, userId, recipient.address);
+    return recipient.address;
   }
 
   private async resolveRecipient(
     em: EntityManager,
     userId: string,
-  ): Promise<string> {
+  ): Promise<IPayoutWallet> {
     const [row] = (await em.query(
-      `SELECT address FROM wallets
+      `SELECT address, "srcChainId" FROM wallets
         WHERE "userId" = $1 AND chain = $2 AND "isPrimary"
         LIMIT 1`,
       [userId, EChainKind.EVM],
-    )) as { address: string }[];
+    )) as { address: string; srcChainId: string | number }[];
 
     if (!row) {
       throw new NotFoundException(
@@ -441,7 +458,14 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
         ),
       );
     }
-    return row.address;
+    // The Safe lives on the chain it was linked from, and its ERC-1271 check
+    // only answers on that chain — the reward chain is where the payout lands,
+    // not where ownership is proven.
+    const chainId = Number(row.srcChainId);
+    return {
+      address: row.address,
+      chainId: Number.isFinite(chainId) && chainId > 0 ? chainId : this.chainId,
+    };
   }
 
   async findById(userId: string, claimId: string): Promise<IClaimResponse> {
