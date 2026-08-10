@@ -18,7 +18,11 @@ import { ClaimEntity } from '@/claims/entities/claim.entity';
 import { ETxSource, ETxStatus, ETxType } from '@/transactions/enums/tx.enum';
 
 @Entity('transactions')
-@Unique('UQ_transactions_src_tx_output', [
+// Per user, not global: a transfer between two platform users is one row in
+// each history, so the recipient's incoming row cannot be swallowed by the
+// sender's outgoing one.
+@Unique('UQ_transactions_user_src_tx_output', [
+  'userId',
   'srcChainId',
   'txHash',
   'outputIndex',

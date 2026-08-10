@@ -73,6 +73,26 @@ export class SecretsService {
     }));
   }
 
+  /**
+   * Wipes every blob of one kind for the user. The server holds ciphertext it
+   * cannot read, so there is nothing to soft-delete and nothing to restore
+   * from — a caller who deletes a seed without its own copy has lost the wallet.
+   */
+  async remove(
+    userId: string,
+    kind: ESecretKind,
+  ): Promise<{ deleted: number }> {
+    const { affected } = await this.secrets.delete({ userId, kind });
+    const deleted = affected ?? 0;
+
+    this.logger.log(
+      `security_event=secrets.delete userId=${userId} blob=${kind} ` +
+        `deleted=${deleted}`,
+    );
+
+    return { deleted };
+  }
+
   async status(userId: string) {
     const rows = await this.secrets.find({ where: { userId } });
     const latest = rows.reduce<Date | null>(

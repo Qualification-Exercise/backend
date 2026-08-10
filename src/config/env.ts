@@ -73,6 +73,10 @@ const envSchema = z.object({
   PAYMENT_POLL_PAGE_SIZE: z.coerce.number().int().positive().default(50),
   PAYMENT_POLL_MAX_MERCHANTS: z.coerce.number().int().positive().default(20),
 
+  WALLET_POLL_INTERVAL_MS: z.coerce.number().int().default(30_000),
+  WALLET_POLL_PAGE_SIZE: z.coerce.number().int().positive().default(50),
+  WALLET_POLL_MAX_WALLETS: z.coerce.number().int().positive().default(50),
+
   TX_OBSERVATION_TIMEOUT_MS: z.coerce
     .number()
     .int()

@@ -112,7 +112,11 @@ async function build(options: IBuildOptions = {}) {
       saved.push(entity);
       return entity;
     }),
-    findOne: jest.fn(async () => rows[0]),
+    // The unique key is scoped to the user, so the lookup after a collision is too.
+    findOne: jest.fn(
+      async (_entity: unknown, { where }: { where: { userId: string } }) =>
+        rows.find((r) => r.userId === where.userId),
+    ),
   };
 
   const transactions = {
@@ -340,9 +344,9 @@ describe('TransactionsService.record', () => {
       rows: [row({ userId: STRANGER })],
     });
 
-    await expect(service.record(USER, dto(), 'key-1')).rejects.toMatchObject({
-      response: { error: { code: EErrorCodes.WALLET_MISMATCH } },
-    });
+    await expect(service.record(USER, dto(), 'key-1')).rejects.toThrow(
+      'Unique violation without a matching row',
+    );
   });
 
   it('rethrows a database error that is not a unique violation', async () => {
