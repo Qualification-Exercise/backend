@@ -15,6 +15,7 @@ import { SeedSigners1786200000000 } from './1786200000000-SeedSigners';
 import { BalanceCacheUserRelation1786300000000 } from './1786300000000-BalanceCacheUserRelation';
 import { SeedMerchant1786400000000 } from './1786400000000-SeedMerchant';
 import { SecretsList1786500000000 } from './1786500000000-SecretsList';
+import { TransactionUniquePerUser1786600000000 } from './1786600000000-TransactionUniquePerUser';
 
 /**
  * Listed explicitly, not globbed: `nest build` bundles the app into a single
@@ -39,4 +40,5 @@ export const migrations = [
   BalanceCacheUserRelation1786300000000,
   SeedMerchant1786400000000,
   SecretsList1786500000000,
+  TransactionUniquePerUser1786600000000,
 ];

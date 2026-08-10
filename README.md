@@ -158,6 +158,8 @@ including the endpoints still to be built — is in
 | GET    | `/secrets/entropy`          | `{ entropies: [{ entropy, metadata? }] }` for a restore     |
 | POST   | `/secrets/seed`             | store an encrypted seed blob (derived cache, 204)           |
 | GET    | `/secrets/seed`             | `{ seeds: [{ seed, metadata? }] }`                          |
+| DELETE | `/secrets/entropy`          | wipe every stored entropy blob — permanent, 204             |
+| DELETE | `/secrets/seed`             | wipe every stored seed blob — permanent, 204                |
 | GET    | `/merchants`                | addresses whose incoming transfers earn cashback            |
 | GET    | `/merchants/:id`            | one merchant                                                |
 | POST   | `/merchants`                | register one (`x-admin-key`, not a user token)              |
@@ -260,7 +262,7 @@ variable is documented there and mirrored in `.env.example`.
 | Merchants         | `ADMIN_API_KEY` (empty closes `POST /merchants`), `MERCHANT_ADDRESS`, `MERCHANT_NAME`, `MERCHANT_SRC_CHAIN_ID`, `MERCHANT_TOKEN` |
 | Chains            | `SUPPORTED_CHAINS`, `SUPPORTED_ASSETS`, `CONFIRMATION_DEPTHS`, `RPC_URLS`, `RPC_SHARING_ALLOWED_CHAINS`, `TOKEN_ADDRESSES`, `REWARD_CHAIN_ID` |
 | Contracts         | `COUPON_CLAIM_CONTRACT_ADDRESS`, `UTILITY_TOKEN_CONTRACT_ADDRESS`, `UTILITY_TOKEN_CONTRACT_ABI`                               |
-| Transactions      | `TX_OBSERVATION_TIMEOUT_MS`, `TX_SWEEP_INTERVAL_MS`, `BALANCE_CACHE_TTL_MS`                                                   |
+| Transactions      | `TX_OBSERVATION_TIMEOUT_MS`, `TX_SWEEP_INTERVAL_MS`, `BALANCE_CACHE_TTL_MS`, `WALLET_POLL_*` (incoming transfers; `WALLET_POLL_INTERVAL_MS=0` disables) |
 | Claims            | `ATTESTATION_THRESHOLD`, `CLAIM_COOLDOWN_HOURS`, `CLAIM_DEADLINE_SECONDS`, `CLAIM_SWEEP_INTERVAL_MS`                          |
 | Issuer            | `ISSUER_ID`, `ISSUER_RPC_URLS`, `ISSUER_SIGNING_KEY`, `ISSUER_PRICE_PROVIDER`, `PRICE_TOLERANCE_BPS`, `PRICE_WINDOW_SECONDS`  |
 | Relayer           | `RELAYER_RPC_URLS`, `RELAYER_SIGNING_KEY`, `RELAYER_CONFIRMATIONS`, `RELAYER_MAX_FEE_GWEI`, `RELAYER_DEADLINE_MARGIN_SECONDS` |

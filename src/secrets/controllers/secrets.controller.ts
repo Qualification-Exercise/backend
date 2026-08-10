@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -63,6 +64,18 @@ export class SecretsController {
     };
   }
 
+  @Delete('entropy')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Delete entropy',
+    description:
+      'Drops every entropy blob this user stored. The server holds ciphertext it cannot read, so the delete is permanent and unrecoverable — a client without its own copy has lost the wallet. Deleting nothing is still 204.',
+  })
+  @ApiNoContentResponse({ description: 'Entropy deleted' })
+  async deleteEntropy(@CurrentUser() user: IAuthUser) {
+    await this.secretsService.remove(user.userId, ESecretKind.ENTROPY);
+  }
+
   @Post('seed')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
@@ -89,5 +102,16 @@ export class SecretsController {
     return {
       seeds: await this.secretsService.list(user.userId, ESecretKind.SEED),
     };
+  }
+
+  @Delete('seed')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Delete seed',
+    description: 'Same contract as the entropy delete, and just as permanent.',
+  })
+  @ApiNoContentResponse({ description: 'Seed deleted' })
+  async deleteSeed(@CurrentUser() user: IAuthUser) {
+    await this.secretsService.remove(user.userId, ESecretKind.SEED);
   }
 }

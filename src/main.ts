@@ -7,6 +7,7 @@ import { EProcessRole } from '@/config/process-role.enum';
 import { validateEnv } from '@/config/env';
 import { setupSwagger } from '@/common/utils/swagger.util';
 import { pino } from 'pino';
+import helmet from 'helmet';
 
 const _logger = pino({
   transport: {
@@ -26,6 +27,20 @@ async function bootstrapApi() {
     env.CORS_ORIGINS === '*'
       ? '*'
       : env.CORS_ORIGINS.split(',').map((origin) => origin.trim());
+
+  // swagger-ui bootstraps itself with an inline <script> and inline styles, so
+  // the default CSP would blank out /docs. Everything else stays at defaults.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          'script-src': ["'self'", "'unsafe-inline'"],
+          'img-src': ["'self'", 'data:'],
+        },
+      },
+    }),
+  );
 
   app.enableCors({
     origin: corsOrigins,

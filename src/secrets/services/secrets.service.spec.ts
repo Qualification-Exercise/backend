@@ -32,6 +32,9 @@ async function build(rows: WalletSecret[] = []) {
     ),
     create: jest.fn((data: Partial<WalletSecret>) => ({ ...data })),
     save: jest.fn(async (item: WalletSecret) => item),
+    delete: jest.fn(async ({ kind }: { kind: ESecretKind }) => ({
+      affected: rows.filter((item) => item.kind === kind).length,
+    })),
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -131,6 +134,31 @@ describe('SecretsService.status', () => {
       entropy: false,
       seed: false,
       updatedAt: null,
+    });
+  });
+});
+
+describe('SecretsService.remove', () => {
+  it('wipes only the requested kind and reports the count', async () => {
+    const { service, secrets } = await build([
+      row(),
+      row({ id: 'secret-2', kind: ESecretKind.SEED }),
+    ]);
+
+    await expect(service.remove(USER, ESecretKind.ENTROPY)).resolves.toEqual({
+      deleted: 1,
+    });
+    expect(secrets.delete).toHaveBeenCalledWith({
+      userId: USER,
+      kind: ESecretKind.ENTROPY,
+    });
+  });
+
+  it('is a no-op for a user with nothing stored', async () => {
+    const { service } = await build();
+
+    await expect(service.remove(USER, ESecretKind.SEED)).resolves.toEqual({
+      deleted: 0,
     });
   });
 });

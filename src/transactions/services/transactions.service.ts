@@ -64,10 +64,10 @@ export interface ITransactionResponse {
 }
 
 /**
- * History has two writers: the payment poller (what the indexer saw) and the
- * device (`POST /transactions`, what it just broadcast). They meet on
- * `UNIQUE (srcChainId, txHash, outputIndex)`, so a device row appears instantly
- * and the poller's row for the same hash updates it in place.
+ * History has two writers: the wallet transfer poller (what the indexer saw)
+ * and the device (`POST /transactions`, what it just broadcast). They meet on
+ * `UNIQUE (userId, srcChainId, txHash, outputIndex)`, so a device row appears
+ * instantly and the poller's row for the same hash updates it in place.
  *
  * A device-written row is a *claim about the chain*, never an entitlement:
  * coupons still come from the poller and the issuers reading chains themselves.
@@ -243,14 +243,13 @@ export class TransactionsService implements OnModuleInit, OnModuleDestroy {
 
     const existing = await em.findOne(Transaction, {
       where: {
+        userId,
         srcChainId: dto.srcChainId,
         txHash: resolved.txHash,
         outputIndex,
       },
     });
     if (!existing) throw new Error('Unique violation without a matching row');
-
-    if (existing.userId !== userId) throw this.walletMismatch();
 
     return { item: await this.toResponse(existing), created: false };
   }
