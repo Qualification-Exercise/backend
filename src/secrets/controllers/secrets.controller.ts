@@ -37,7 +37,7 @@ export class SecretsController {
   @ApiOperation({
     summary: 'Store entropy',
     description:
-      'Body carries `entropy` (client-side ciphertext) and optional free-form `metadata`. The string is stored as-is — the server never sees plaintext and never parses the blob. Writes append, so a user can hold several.',
+      'Body carries `entropy` (client-side ciphertext) and optional free-form `metadata`. The string is stored as-is — the server never sees plaintext and never parses the blob. A write overwrites the previous entropy, so a user holds at most one.',
   })
   @ApiNoContentResponse({ description: 'Entropy stored' })
   storeEntropy(@CurrentUser() user: IAuthUser, @Body() dto: StoreSecretDTO) {
@@ -48,7 +48,7 @@ export class SecretsController {
   @ApiOperation({
     summary: 'Get entropy',
     description:
-      'Every stored entropy with its metadata, for client-side decryption. Empty list when nothing is stored.',
+      'The stored entropy with its metadata, for client-side decryption. Single-element list, empty when nothing is stored.',
   })
   @ApiOkResponse({
     schema: {
@@ -69,7 +69,7 @@ export class SecretsController {
   @ApiOperation({
     summary: 'Delete entropy',
     description:
-      'Drops every entropy blob this user stored. The server holds ciphertext it cannot read, so the delete is permanent and unrecoverable — a client without its own copy has lost the wallet. Deleting nothing is still 204.',
+      'Drops the entropy blob this user stored. The server holds ciphertext it cannot read, so the delete is permanent and unrecoverable — a client without its own copy has lost the wallet. Deleting nothing is still 204.',
   })
   @ApiNoContentResponse({ description: 'Entropy deleted' })
   async deleteEntropy(@CurrentUser() user: IAuthUser) {

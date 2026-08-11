@@ -16,7 +16,7 @@ export enum ESecretKind {
 }
 
 @Entity({ name: 'wallet_secrets' })
-@Index('IDX_wallet_secrets_user_kind', ['userId', 'kind'])
+@Index('IDX_wallet_secrets_user_kind', ['userId', 'kind'], { unique: true })
 export class WalletSecret {
   @PrimaryGeneratedColumn('uuid')
   id: string;

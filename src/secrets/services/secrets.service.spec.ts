@@ -31,7 +31,7 @@ async function build(rows: WalletSecret[] = []) {
         : rows,
     ),
     create: jest.fn((data: Partial<WalletSecret>) => ({ ...data })),
-    save: jest.fn(async (item: WalletSecret) => item),
+    upsert: jest.fn(async () => ({ identifiers: [] })),
     delete: jest.fn(async ({ kind }: { kind: ESecretKind }) => ({
       affected: rows.filter((item) => item.kind === kind).length,
     })),
@@ -48,7 +48,7 @@ async function build(rows: WalletSecret[] = []) {
 }
 
 describe('SecretsService.store', () => {
-  it('appends the blob with its free-form metadata', async () => {
+  it('overwrites the blob of that kind, keeping its free-form metadata', async () => {
     const { service, secrets } = await build();
 
     await service.store(USER, ESecretKind.ENTROPY, {
@@ -56,12 +56,16 @@ describe('SecretsService.store', () => {
       metadata: { kdf: 'whatever-the-client-used' },
     });
 
-    expect(secrets.save).toHaveBeenCalledWith({
-      userId: USER,
-      kind: ESecretKind.ENTROPY,
-      blob: 'cipher',
-      metadata: { kdf: 'whatever-the-client-used' },
-    });
+    expect(secrets.upsert).toHaveBeenCalledWith(
+      {
+        userId: USER,
+        kind: ESecretKind.ENTROPY,
+        blob: 'cipher',
+        metadata: { kdf: 'whatever-the-client-used' },
+        createdAt: expect.any(Date),
+      },
+      { conflictPaths: ['userId', 'kind'] },
+    );
   });
 
   it('stores a seed under its own kind, metadata optional', async () => {
@@ -69,12 +73,15 @@ describe('SecretsService.store', () => {
 
     await service.store(USER, ESecretKind.SEED, { seed: 'cipher' });
 
-    expect(secrets.save).toHaveBeenCalledWith({
-      userId: USER,
-      kind: ESecretKind.SEED,
-      blob: 'cipher',
-      metadata: null,
-    });
+    expect(secrets.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: USER,
+        kind: ESecretKind.SEED,
+        blob: 'cipher',
+        metadata: null,
+      }),
+      { conflictPaths: ['userId', 'kind'] },
+    );
   });
 
   it('refuses a body that does not carry the blob it claims to store', async () => {

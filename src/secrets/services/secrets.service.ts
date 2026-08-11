@@ -18,8 +18,8 @@ export interface ISecretItem {
 
 /**
  * Ciphertext in, ciphertext out: the blob is an opaque string, `metadata` is
- * whatever the client put there, and a write appends, so a user can hold
- * several blobs per kind.
+ * whatever the client put there, and a write overwrites, so a user holds at
+ * most one blob per kind.
  */
 @Injectable()
 export class SecretsService {
@@ -42,13 +42,20 @@ export class SecretsService {
       );
     }
 
-    await this.secrets.save(
+    // Overwrite, not append: the unique (user_id, kind) index turns a second
+    // write into an update, and `createdAt` is set explicitly so `status`
+    // reports when the blob was last replaced rather than first stored.
+    await this.secrets.upsert(
+      // Cast: TypeORM's deep-partial type cannot express a free-form jsonb
+      // column, and `metadata` is exactly that.
       this.secrets.create({
         userId,
         kind,
         blob,
         metadata: dto.metadata ?? null,
-      }),
+        createdAt: new Date(),
+      }) as Parameters<Repository<WalletSecret>['upsert']>[0],
+      { conflictPaths: ['userId', 'kind'] },
     );
     this.logger.log(
       `security_event=secrets.write userId=${userId} blob=${kind}`,
