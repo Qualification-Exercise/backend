@@ -1,6 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 import { EChainKind } from '@/chains/chain-kind.enum';
 import { ETxStatus, ETxType } from '@/transactions/enums/tx.enum';
@@ -21,6 +28,14 @@ export class ListTransactionsDTO {
   @IsOptional()
   @IsEnum(ETxType)
   type?: ETxType;
+
+  @ApiPropertyOptional({
+    enum: ['in', 'out'],
+    description: 'Filter by direction: received (in) or sent (out)',
+  })
+  @IsOptional()
+  @IsIn(['in', 'out'])
+  direction?: 'in' | 'out';
 
   @ApiPropertyOptional({ enum: ETxStatus })
   @IsOptional()

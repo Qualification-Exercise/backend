@@ -26,7 +26,7 @@ import { ConfirmationPolicy } from '@/payments/confirmation-policy';
 import { IndexerCursor } from '@/payments/entities/indexer-cursor.entity';
 import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
-import { normalizeAddress } from '@/wallets/address';
+import { canonicalAddress } from '@/wallets/address';
 import { Wallet } from '@/wallets/entities/wallet.entity';
 
 function isAfter(t: ITransfer, cursor: IndexerCursor): boolean {
@@ -51,12 +51,10 @@ function outputIndexOf(transfer: ITransfer): number {
   return transfer.logIndex ?? transfer.transferIndex;
 }
 
-function canonical(address: string): string {
-  try {
-    return normalizeAddress(address).address;
-  } catch {
-    return address.trim().toLowerCase();
-  }
+// A payment is always between two known addresses, so an absent side is not a
+// payment; `canonicalAddress` is the shared comparison form.
+function canonical(address: string | null): string {
+  return canonicalAddress(address) ?? '';
 }
 
 @Injectable()
@@ -175,8 +173,12 @@ export class PaymentPollerService implements OnModuleInit, OnModuleDestroy {
     const merchantAddress = canonical(merchant.address);
 
     // Trust boundary: the indexer decides what it returns, we decide what counts.
+    // A transfer with no sender (a mint) reaches the merchant with nobody to
+    // attribute it to, so it is not a payment either.
     const inbound = transfers
-      .filter((t) => canonical(t.to) === merchantAddress)
+      .filter(
+        (t) => t.from !== null && canonicalAddress(t.to) === merchantAddress,
+      )
       .sort(byOrder);
 
     if (transfers.length >= requestedLimit) {

@@ -71,11 +71,13 @@ export class Transaction {
   @Column({ type: 'numeric', precision: 38, scale: 6, nullable: true })
   usdValue: string | null;
 
-  @Column()
-  fromAddress: string;
+  // Null on mint, burn and contract creation: the chain has no counterparty
+  // there, and an empty string would read as one.
+  @Column({ type: 'varchar', nullable: true })
+  fromAddress: string | null;
 
-  @Column()
-  toAddress: string;
+  @Column({ type: 'varchar', nullable: true })
+  toAddress: string | null;
 
   @Column({ type: 'varchar', nullable: true })
   feeToken: string | null;

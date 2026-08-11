@@ -395,7 +395,7 @@ describe('PaymentPollerService', () => {
         }),
       ],
       transfers: [sameTx],
-      wallets: [{ userId: 'user-1', address: sameTx[0].from }],
+      wallets: [{ userId: 'user-1', address: sameTx[0].from ?? undefined }],
     });
     await service.tick();
 

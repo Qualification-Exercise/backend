@@ -37,8 +37,8 @@ const transferSchema = z.object({
   timestamp: z.number().int().nonnegative(),
   transactionIndex: z.number().int().nonnegative(),
   logIndex: z.number().int().nonnegative().nullable(),
-  from: z.string(),
-  to: z.string(),
+  from: z.string().nullable(),
+  to: z.string().nullable(),
   label: z.string().optional(),
   metadata: z.unknown().nullable().optional(),
 });

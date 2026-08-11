@@ -110,6 +110,26 @@ export function normalizeAddress(input: string): INormalizedAddress {
   }
 }
 
+/**
+ * The one form addresses are compared in. Case rules are per family — EVM hex is
+ * checksummed, Tron base58 is case-significant — so a global `toLowerCase()`
+ * would silently stop every Tron address from matching its own wallet. Anything
+ * the classifier does not recognise is compared verbatim rather than folded.
+ *
+ * `null` in, `null` out: indexers report mint, burn and contract creation with
+ * one side missing, and a missing side matches nothing.
+ */
+export function canonicalAddress(
+  address: string | null | undefined,
+): string | null {
+  if (!address) return null;
+  try {
+    return normalizeAddress(address).address;
+  } catch {
+    return address.trim();
+  }
+}
+
 export function claimMessage(nonce: string, coupon: string): string {
   return [
     'WDK Cashback: claim coupon',

@@ -20,16 +20,8 @@ import { IndexerService } from '@/indexer/services/indexer.service';
 import { ConfirmationPolicy } from '@/payments/confirmation-policy';
 import { Transaction } from '@/transactions/entities/transaction.entity';
 import { ETxSource, ETxStatus, ETxType } from '@/transactions/enums/tx.enum';
-import { normalizeAddress } from '@/wallets/address';
+import { canonicalAddress } from '@/wallets/address';
 import { Wallet } from '@/wallets/entities/wallet.entity';
-
-function canonical(address: string): string {
-  try {
-    return normalizeAddress(address).address;
-  } catch {
-    return address.trim().toLowerCase();
-  }
-}
 
 function outputIndexOf(transfer: ITransfer): number {
   return transfer.logIndex ?? transfer.transferIndex;
@@ -147,17 +139,32 @@ export class WalletTransferPollerService
     this.logger.warn(message);
   }
 
+  /**
+   * One transaction can carry several transfers in either direction (a swap, a
+   * batch payout, a paymaster refund), so each transfer is classified on its
+   * own rather than the transaction as a whole.
+   */
   private async ingest(wallet: Wallet, transfers: ITransfer[]): Promise<void> {
-    const address = canonical(wallet.address);
+    const address = canonicalAddress(wallet.address);
 
     for (const transfer of transfers) {
-      const to = canonical(transfer.to);
-      const from = canonical(transfer.from);
+      // Chain indexers only emit transfers that move value; a zero (or
+      // unparseable) amount is noise this history has no row for.
+      if (!(Number(transfer.amount) > 0)) continue;
+
+      const from = canonicalAddress(transfer.from);
+      const to = canonicalAddress(transfer.to);
+      const isOut = from !== null && from === address;
+      const isIn = to !== null && to === address;
+
+      // A wallet paying itself moves nothing: recording it as `out` would show
+      // an outflow that never happened.
+      if (isOut && isIn) continue;
       // Trust boundary: the indexer decides what it returns, we decide what
       // belongs in this user's history.
-      if (to !== address && from !== address) continue;
+      if (!isOut && !isIn) continue;
 
-      await this.upsert(wallet, transfer, to === address ? 'in' : 'out');
+      await this.upsert(wallet, transfer, isIn ? 'in' : 'out');
     }
   }
 
@@ -211,8 +218,8 @@ export class WalletTransferPollerService
         token: transfer.token.toUpperCase(),
         amount: transfer.amount,
         usdValue: null,
-        fromAddress: canonical(transfer.from),
-        toAddress: canonical(transfer.to),
+        fromAddress: canonicalAddress(transfer.from),
+        toAddress: canonicalAddress(transfer.to),
         feeToken: null,
         feeAmount: null,
         status,

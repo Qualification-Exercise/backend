@@ -11,7 +11,11 @@ const SEPOLIA = 11155111;
 const WALLET_ADDRESS = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 const COUNTERPARTY = '0x64998cb8F2c9a6A9293c47c24Bf4535E003e57d3';
 
-function wallet(): Wallet {
+const TRON = 4294967297;
+const TRON_WALLET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+const TRON_COUNTERPARTY = 'TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7';
+
+function wallet(over: Partial<Wallet> = {}): Wallet {
   return {
     id: 'w-1',
     userId: 'u-1',
@@ -19,6 +23,7 @@ function wallet(): Wallet {
     srcChainId: SEPOLIA,
     address: WALLET_ADDRESS,
     createdAt: new Date(),
+    ...over,
   } as Wallet;
 }
 
@@ -39,7 +44,11 @@ function transfer(over: Partial<ITransfer> = {}): ITransfer {
   };
 }
 
-function build(transfers: ITransfer[], existing: Partial<Transaction> | null) {
+function build(
+  transfers: ITransfer[],
+  existing: Partial<Transaction> | null,
+  linked: Wallet = wallet(),
+) {
   const transactions = {
     findOne: jest.fn().mockResolvedValue(existing),
     insert: jest.fn().mockResolvedValue(undefined),
@@ -52,7 +61,7 @@ function build(transfers: ITransfer[], existing: Partial<Transaction> | null) {
     isConfirmed: jest.fn().mockResolvedValue(true),
     depthFor: jest.fn().mockReturnValue(12),
   };
-  const wallets = { find: jest.fn().mockResolvedValue([wallet()]) };
+  const wallets = { find: jest.fn().mockResolvedValue([linked]) };
   const config = {
     get: (key: string) => (key === 'WALLET_POLL_INTERVAL_MS' ? 30_000 : 50),
   };
@@ -121,6 +130,91 @@ describe('WalletTransferPollerService', () => {
 
     expect(transactions.insert).not.toHaveBeenCalled();
     expect(transactions.update).not.toHaveBeenCalled();
+  });
+
+  it('matches a Tron address without folding its case', async () => {
+    const { service, transactions } = build(
+      [
+        transfer({
+          blockchain: 'tron',
+          from: TRON_COUNTERPARTY,
+          to: TRON_WALLET,
+        }),
+      ],
+      null,
+      wallet({
+        chain: EChainKind.TRON,
+        srcChainId: TRON,
+        address: TRON_WALLET,
+      }),
+    );
+
+    await service.tick();
+
+    expect(transactions.insert).toHaveBeenCalledTimes(1);
+    expect(transactions.insert.mock.calls[0][0]).toMatchObject({
+      direction: 'in',
+      fromAddress: TRON_COUNTERPARTY,
+      toAddress: TRON_WALLET,
+    });
+  });
+
+  it('skips a transfer between two addresses of the same wallet', async () => {
+    const { service, transactions } = build(
+      [transfer({ from: WALLET_ADDRESS, to: WALLET_ADDRESS })],
+      null,
+    );
+
+    await service.tick();
+
+    expect(transactions.insert).not.toHaveBeenCalled();
+    expect(transactions.update).not.toHaveBeenCalled();
+  });
+
+  it('records a transfer whose counterparty side is null', async () => {
+    const { service, transactions } = build([transfer({ from: null })], null);
+
+    await service.tick();
+
+    expect(transactions.insert).toHaveBeenCalledTimes(1);
+    expect(transactions.insert.mock.calls[0][0]).toMatchObject({
+      direction: 'in',
+      fromAddress: null,
+      toAddress: WALLET_ADDRESS,
+    });
+  });
+
+  it('skips a zero-amount transfer', async () => {
+    const { service, transactions } = build([transfer({ amount: '0' })], null);
+
+    await service.tick();
+
+    expect(transactions.insert).not.toHaveBeenCalled();
+  });
+
+  it('classifies each transfer of a grouped transaction on its own', async () => {
+    const { service, transactions } = build(
+      [
+        transfer({ logIndex: 0 }),
+        transfer({ logIndex: 1, from: WALLET_ADDRESS, to: COUNTERPARTY }),
+      ],
+      null,
+    );
+
+    await service.tick();
+
+    expect(transactions.insert).toHaveBeenCalledTimes(2);
+    expect(
+      transactions.insert.mock.calls.map(
+        (call: [{ direction: string; outputIndex: number }]) => [
+          call[0].outputIndex,
+          call[0].direction,
+        ],
+      ),
+    ).toEqual([
+      [0, 'in'],
+      [1, 'out'],
+    ]);
   });
 
   it('leaves an already up-to-date row untouched', async () => {
