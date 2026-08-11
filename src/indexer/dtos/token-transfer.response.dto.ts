@@ -57,16 +57,18 @@ export class TokenTransferResponseDto {
   logIndex: number | null;
 
   @ApiProperty({
-    description: 'From address',
+    description: 'From address; null on mint and contract creation',
     example: '0x1234567890123456789012345678901234567890',
+    nullable: true,
   })
-  from: string;
+  from: string | null;
 
   @ApiProperty({
-    description: 'To address',
+    description: 'To address; null on burn',
     example: '0x0987654321098765432109876543210987654321',
+    nullable: true,
   })
-  to: string;
+  to: string | null;
 
   @ApiProperty({
     description: 'Optional label',

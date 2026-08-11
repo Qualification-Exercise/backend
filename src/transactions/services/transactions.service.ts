@@ -51,8 +51,8 @@ export interface ITransactionResponse {
   token: string;
   amount: string;
   usdValue: string | null;
-  from: string;
-  to: string;
+  from: string | null;
+  to: string | null;
   fee: { token: string; amount: string } | null;
   status: ETxStatus;
   failureReason: string | null;
@@ -124,6 +124,9 @@ export class TransactionsService implements OnModuleInit, OnModuleDestroy {
       });
     }
     if (query.type) qb.andWhere('tx.type = :type', { type: query.type });
+    if (query.direction) {
+      qb.andWhere('tx.direction = :direction', { direction: query.direction });
+    }
     if (query.status) {
       qb.andWhere('tx.status = :status', { status: query.status });
     }

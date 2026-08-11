@@ -8,8 +8,9 @@ export interface ITransfer {
   timestamp: number;
   transactionIndex: number;
   logIndex: number | null;
-  from: string;
-  to: string;
+  // Either side is absent on mint, burn and contract creation.
+  from: string | null;
+  to: string | null;
   label?: string;
   metadata?: unknown | null;
 }
