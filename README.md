@@ -154,9 +154,9 @@ including the endpoints still to be built — is in
 | GET    | `/users/me`                 | current user, wallet mapping, which blobs are stored        |
 | POST   | `/wallets`                  | link every address derived from the mnemonic, in one call   |
 | GET    | `/wallets`                  | the user's linked addresses                                 |
-| POST   | `/secrets/entropy`          | store an encrypted entropy blob (opaque string, 204)        |
+| POST   | `/secrets/entropy`          | store an encrypted entropy blob, overwriting any prior (204) |
 | GET    | `/secrets/entropy`          | `{ entropies: [{ entropy, metadata? }] }` for a restore     |
-| POST   | `/secrets/seed`             | store an encrypted seed blob (derived cache, 204)           |
+| POST   | `/secrets/seed`             | store an encrypted seed blob, overwriting any prior (204)   |
 | GET    | `/secrets/seed`             | `{ seeds: [{ seed, metadata? }] }`                          |
 | DELETE | `/secrets/entropy`          | wipe every stored entropy blob — permanent, 204             |
 | DELETE | `/secrets/seed`             | wipe every stored seed blob — permanent, 204                |
@@ -215,10 +215,10 @@ process. Two blobs, because WDK produces two: `entropy` is the source of truth,
 The blob is an **opaque string**: no format, no length beyond the 50 KB body cap,
 no server-side KDF policy — cipher, KDF and its parameters are the client's
 choice and travel in the free-form `metadata` object the server stores verbatim.
-Writes append, so a user can hold several blobs per kind (multi-wallet,
-rotation), and a read returns the list — `{ entropies: [...] }` /
-`{ seeds: [...] }`, empty when nothing is stored. There is no delete route:
-blobs go away with the user (`ON DELETE CASCADE`). Reads carry no per-route rate
+A write overwrites, so a user holds at most one blob per kind, and a read
+returns it as a list — `{ entropies: [...] }` / `{ seeds: [...] }`, empty when
+nothing is stored. `DELETE` wipes the blob permanently; blobs also go away with
+the user (`ON DELETE CASCADE`). Reads carry no per-route rate
 limit either — only the global throttler — but every read is logged whether or
 not it hit, a run of misses being the shape worth alerting on.
 
