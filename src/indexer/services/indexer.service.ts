@@ -2,6 +2,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   Optional,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
@@ -47,7 +48,10 @@ const transferSchema = z.object({
 });
 
 const transfersSchema = z.object({ transfers: z.array(transferSchema) });
-const batchSchema = z.array(transfersSchema);
+// A batch entry for a pair the indexer cannot serve comes back without
+// `transfers`. One such entry must not throw away the nine good ones next to
+// it, so the entry is kept as-is here and sorted out by the caller.
+const batchSchema = z.array(z.unknown());
 
 const balanceSchema = z.object({
   blockchain: z.string(),
@@ -74,6 +78,8 @@ export class IndexerService {
   private readonly apiKey: string;
   private readonly maxRetries = 3;
   private breaker: CircuitBreaker;
+  private readonly logger = new Logger(IndexerService.name);
+  private readonly warnedPairs = new Set<string>();
 
   constructor(
     private readonly http: HttpService,
@@ -128,9 +134,24 @@ export class IndexerService {
           `Batch response has ${parsed.length} entries for ${chunk.length} queries`,
         );
       }
-      out.push(...parsed.map((entry) => entry.transfers));
+      out.push(...parsed.map((entry, j) => this.transfersOf(entry, chunk[j])));
     }
     return out;
+  }
+
+  /** An entry the indexer could not serve yields no transfers, not an outage. */
+  private transfersOf(entry: unknown, query: ITransferQuery): ITransfer[] {
+    const parsed = transfersSchema.safeParse(entry);
+    if (parsed.success) return parsed.data.transfers;
+
+    const key = `${query.blockchain}/${query.token}`;
+    if (!this.warnedPairs.has(key)) {
+      this.warnedPairs.add(key);
+      this.logger.warn(
+        `Batch entry for ${key} carries no transfers: ${JSON.stringify(entry)}`,
+      );
+    }
+    return [];
   }
 
   async tokenBalance(
