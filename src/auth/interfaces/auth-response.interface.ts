@@ -14,4 +14,6 @@ export interface IJwtPayload {
   userId: string;
   email?: string;
   type?: 'refresh';
+  jti?: string;
+  familyId?: string;
 }

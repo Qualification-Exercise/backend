@@ -7,6 +7,8 @@
  */
 import { createPublicClient, http, type PublicClient } from 'viem';
 
+const RPC_TIMEOUT_MS = 5_000;
+
 export class ChainClientCache {
   private readonly clients = new Map<string, PublicClient>();
 
@@ -14,7 +16,9 @@ export class ChainClientCache {
     const cached = this.clients.get(url);
     if (cached) return cached;
 
-    const client = createPublicClient({ transport: http(url) });
+    const client = createPublicClient({
+      transport: http(url, { timeout: RPC_TIMEOUT_MS }),
+    });
     this.clients.set(url, client);
     return client;
   }

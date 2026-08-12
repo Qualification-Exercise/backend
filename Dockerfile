@@ -29,6 +29,12 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# The production image says so itself. Note that an env_file mounted by
+# docker-compose still overrides this, which is exactly how a deployment used
+# to end up in development mode — the schema now has no default to fall back
+# on, so a wrong or missing value fails the boot instead of degrading it.
+ENV NODE_ENV=production
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 

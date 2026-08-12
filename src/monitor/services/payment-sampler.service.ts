@@ -8,6 +8,7 @@ import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
 import { PaymentVerifierService } from '@/common/chain/payment-verifier.service';
 import { paymentRef } from '@/chains';
 import { MonitorConfig } from '@/monitor/monitor-config';
+import { EventCursorEntity } from '@/common/chain/event-cursor.entity';
 import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
 
@@ -38,6 +39,8 @@ export class PaymentSamplerService {
     private readonly payments: Repository<Payment>,
     @InjectRepository(Merchant)
     private readonly merchants: Repository<Merchant>,
+    @InjectRepository(EventCursorEntity)
+    private readonly cursors: Repository<EventCursorEntity>,
   ) {}
 
   async check(): Promise<void> {
@@ -85,7 +88,12 @@ export class PaymentSamplerService {
       if (!token) continue;
 
       const head = await this.rpc(srcChainId).getBlockNumber();
-      const fromBlock = head > LOOKBACK_BLOCKS ? head - LOOKBACK_BLOCKS : 0n;
+      const cursorName = `monitor:unreported:${srcChainId}:${merchant.address}`;
+      const resumeFrom = await this.readCursor(cursorName);
+      const floor = head > LOOKBACK_BLOCKS ? head - LOOKBACK_BLOCKS : 0n;
+      const fromBlock =
+        resumeFrom !== null && resumeFrom > floor ? resumeFrom : floor;
+      if (fromBlock > head) continue;
 
       const logs = await this.rpc(srcChainId).getLogs({
         address: token as Hex,
@@ -121,7 +129,21 @@ export class PaymentSamplerService {
           },
         });
       }
+
+      await this.writeCursor(cursorName, head);
     }
+  }
+
+  private async readCursor(name: string): Promise<bigint | null> {
+    const row = await this.cursors.findOne({ where: { name } });
+    return row ? BigInt(row.lastBlock) + 1n : null;
+  }
+
+  private async writeCursor(name: string, head: bigint): Promise<void> {
+    await this.cursors.upsert(
+      { name, lastBlock: Number(head) },
+      { conflictPaths: ['name'] },
+    );
   }
 
   private rpc(srcChainId: number): PublicClient {

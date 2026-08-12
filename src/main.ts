@@ -29,8 +29,10 @@ async function bootstrapApi() {
       : env.CORS_ORIGINS.split(',').map((origin) => origin.trim());
 
   // swagger-ui bootstraps itself with an inline <script> and inline styles, so
-  // the default CSP would blank out /docs. Everything else stays at defaults.
+  // the default CSP would blank out /docs. The relaxation is scoped to that
+  // one path — a documentation page must not set the policy for the API.
   app.use(
+    '/docs',
     helmet({
       contentSecurityPolicy: {
         directives: {
@@ -41,6 +43,7 @@ async function bootstrapApi() {
       },
     }),
   );
+  app.use(helmet());
 
   app.enableCors({
     origin: corsOrigins,

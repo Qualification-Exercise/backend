@@ -55,6 +55,7 @@ function configWith(overrides: Record<string, unknown>): () => IssuerConfig {
     RPC_URLS: '{"11155111":"https://api-node.example/rpc"}',
     RPC_SHARING_ALLOWED_CHAINS: '[]',
     NODE_ENV: 'development',
+    ALLOW_PLAINTEXT_SIGNING_KEY: true,
     SIGNER_KEY_PASSWORD: '',
     ...overrides,
   };

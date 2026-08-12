@@ -13,12 +13,21 @@ function isJsonObject(value: string): boolean {
   }
 }
 
+const boolFlag = (fallback: 'true' | 'false' = 'false') =>
+  z
+    .enum(['true', 'false'])
+    .default(fallback)
+    .transform((v) => v === 'true');
+
 const envSchema = z.object({
-  NODE_ENV: z
-    .enum(['development', 'production', 'test'])
-    .default('development'),
+  NODE_ENV: z.enum(['development', 'production', 'test']),
   PORT: z.coerce.number().default(3000),
   APP_NAME: z.string().default('wdk-backend'),
+
+  ALLOW_PLAINTEXT_SIGNING_KEY: boolFlag(),
+  EXPOSE_ERROR_STACK: boolFlag(),
+  DB_LOGGING: boolFlag(),
+  ENABLE_DEV_TEST_TOKEN: boolFlag(),
 
   PROCESS_ROLE: z.nativeEnum(EProcessRole).default(EProcessRole.API),
 

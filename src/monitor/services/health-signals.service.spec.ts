@@ -37,6 +37,10 @@ function build(world: IWorld = {}) {
     ],
   };
   const claims = { find: async () => world.failures ?? [] };
+  const eventCursors = {
+    findOne: async () => null,
+    upsert: jest.fn().mockResolvedValue(undefined),
+  };
 
   return {
     service: new HealthSignalsService(
@@ -45,6 +49,7 @@ function build(world: IWorld = {}) {
       counters as never,
       cursors as never,
       claims as never,
+      eventCursors as never,
     ),
     alerts,
   };

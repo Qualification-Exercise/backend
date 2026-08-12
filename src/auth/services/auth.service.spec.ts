@@ -7,14 +7,35 @@ import { GoogleTokenVerifierService } from './google-token-verifier.service';
 import { UsersService } from '@/users/services/users.service';
 import { User } from '@/users/entities/user.entity';
 import { EClientType } from '../enums/client-type.enum';
+import { RefreshTokenEntity } from '@/auth/entities/refresh-token.entity';
+import { getRepositoryToken } from '@nestjs/typeorm';
 
 describe('AuthService', () => {
   let service: AuthService;
+  let tokens: {
+    findOne: jest.Mock;
+    insert: jest.Mock;
+    update: jest.Mock;
+  };
   let jwtService: JwtService;
   let usersService: UsersService;
   let googleVerifier: GoogleTokenVerifierService;
 
   beforeEach(async () => {
+    // Rotation state: refresh tokens are rows now, and the default row is a
+    // live, unspent one so the happy path reads naturally.
+    tokens = {
+      findOne: jest.fn(async () => ({
+        jti: 'jti-1',
+        userId: 'user-id',
+        familyId: 'fam-1',
+        usedAt: null,
+        revokedAt: null,
+      })),
+      insert: jest.fn(async () => undefined),
+      update: jest.fn(async () => ({ affected: 1 })),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -51,6 +72,10 @@ describe('AuthService', () => {
           useValue: {
             verifyIdTokenForProfile: jest.fn(),
           },
+        },
+        {
+          provide: getRepositoryToken(RefreshTokenEntity),
+          useValue: tokens,
         },
       ],
     }).compile();
@@ -186,6 +211,8 @@ describe('AuthService', () => {
         userId: 'user-id',
         email: 'test@example.com',
         type: 'refresh',
+        jti: 'jti-1',
+        familyId: 'fam-1',
       } as never);
       jest.spyOn(usersService, 'findByExternalAuthId').mockResolvedValue(user);
       jest.spyOn(jwtService, 'sign').mockReturnValue('new-token');
@@ -256,7 +283,7 @@ describe('AuthService', () => {
     });
   });
 
-  describe('buildAuthResponse', () => {
+  describe('issueSession', () => {
     it('should generate tokens with correct claims and expirations', async () => {
       const user = {
         id: 'user-id',
@@ -269,7 +296,7 @@ describe('AuthService', () => {
       const signSpy = jest.spyOn(jwtService, 'sign').mockReturnValue('token');
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (service as any).buildAuthResponse(user);
+      await (service as any).issueSession(user);
 
       expect(signSpy).toHaveBeenCalledTimes(2);
 
@@ -292,12 +319,75 @@ describe('AuthService', () => {
           userId: 'user-id',
           email: 'test@example.com',
           type: 'refresh',
+          jti: expect.any(String),
+          familyId: expect.any(String),
         },
         {
           expiresIn: 604800,
           issuer: 'https://test.example.com',
           audience: 'test-audience',
         },
+      );
+    });
+  });
+
+  describe('rotation', () => {
+    const user = { id: 'user-id', externalAuthId: 'google-123' } as User;
+
+    const presentRefresh = () => {
+      jest.spyOn(jwtService, 'verifyAsync').mockResolvedValue({
+        sub: 'google-123',
+        userId: 'user-id',
+        type: 'refresh',
+        jti: 'jti-1',
+        familyId: 'fam-1',
+      } as never);
+      jest.spyOn(usersService, 'findByExternalAuthId').mockResolvedValue(user);
+      jest.spyOn(jwtService, 'sign').mockReturnValue('token');
+    };
+
+    it('spends the presented token so it cannot be exchanged twice', async () => {
+      presentRefresh();
+
+      await service.refreshTokens('refresh-token');
+
+      expect(tokens.update).toHaveBeenCalledWith(
+        expect.objectContaining({ jti: 'jti-1' }),
+        expect.objectContaining({ usedAt: expect.any(Date) }),
+      );
+      expect(tokens.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ familyId: 'fam-1' }),
+      );
+    });
+
+    it('kills the whole family when a spent token comes back', async () => {
+      presentRefresh();
+      tokens.findOne.mockResolvedValueOnce({
+        jti: 'jti-1',
+        userId: 'user-id',
+        familyId: 'fam-1',
+        usedAt: new Date(),
+        revokedAt: null,
+      });
+
+      await expect(service.refreshTokens('refresh-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(tokens.update).toHaveBeenCalledWith(
+        expect.objectContaining({ familyId: 'fam-1' }),
+        expect.objectContaining({ revokedAt: expect.any(Date) }),
+      );
+      expect(tokens.insert).not.toHaveBeenCalled();
+    });
+
+    it('logout revokes the family behind the token', async () => {
+      presentRefresh();
+
+      await service.logout('refresh-token');
+
+      expect(tokens.update).toHaveBeenCalledWith(
+        expect.objectContaining({ familyId: 'fam-1' }),
+        expect.objectContaining({ revokedAt: expect.any(Date) }),
       );
     });
   });

@@ -83,6 +83,21 @@ function fakeEm(world: IWorld) {
       id: 'clm-1',
       ...data,
     }),
+    createQueryBuilder: () => {
+      const qb: any = {
+        execute: async () => ({
+          raw: world.challengeSpent
+            ? []
+            : [{ nonce: NONCE, couponRef: COUPON.code }],
+        }),
+      };
+      qb.update = () => qb;
+      qb.set = () => qb;
+      qb.where = () => qb;
+      qb.andWhere = () => qb;
+      qb.returning = () => qb;
+      return qb;
+    },
     save: async (claim: Partial<ClaimEntity>) => {
       if (world.duplicateClaim) {
         throw Object.assign(new Error('duplicate key'), { code: '23505' });
@@ -101,10 +116,25 @@ function build(world: IWorld = {}) {
   const claims = {
     manager: {
       transaction: (cb: (m: any) => Promise<unknown>) => cb(em),
+      // Ownership is proven before the transaction opens, so the recipient
+      // lookup runs on the plain manager.
+      query: em.query,
     },
     createQueryBuilder: jest.fn(),
   };
   const challenges = {
+    findOne: jest.fn(async () =>
+      world.challengeSpent
+        ? null
+        : {
+            id: CHALLENGE_ID,
+            userId: USER,
+            nonce: NONCE,
+            couponRef: COUPON.code,
+            consumedAt: null,
+            expiresAt: new Date(Date.now() + 60_000),
+          },
+    ),
     delete: jest.fn(),
     save: jest.fn(async (row: Record<string, unknown>) => ({
       id: CHALLENGE_ID,
@@ -209,6 +239,38 @@ describe('ClaimsService.create', () => {
     });
     // The coupon moved with the claim, in the same transaction.
     expect(em.couponUpdates).toEqual([ECouponStatus.PENDING_ATTESTATION]);
+  });
+
+  it('names the mismatch when the challenge was signed for another coupon', async () => {
+    const built = build({ ...ok });
+    built.challenges.findOne.mockResolvedValueOnce({
+      id: CHALLENGE_ID,
+      userId: USER,
+      nonce: NONCE,
+      couponRef: COUPON.code,
+      consumedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    // The row the transaction spends carries a different coupon than the one
+    // being claimed: the signature is fine, the authorisation is not.
+    built.em.createQueryBuilder = () => {
+      const qb: any = {
+        execute: async () => ({
+          raw: [{ nonce: NONCE, couponRef: 'ZZZZ-YYYY-XXXX-WWWW' }],
+        }),
+      };
+      qb.update = () => qb;
+      qb.set = () => qb;
+      qb.where = () => qb;
+      qb.andWhere = () => qb;
+      qb.returning = () => qb;
+      return qb;
+    };
+
+    await expect(
+      built.service.create(USER, signed(), KEY),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(built.em.saved).toHaveLength(0);
   });
 
   it('routes the request through the idempotency key it was given', async () => {

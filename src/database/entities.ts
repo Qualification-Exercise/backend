@@ -1,4 +1,5 @@
 import { AttestationEntity } from '@/attestations/entities/attestation.entity';
+import { RefreshTokenEntity } from '@/auth/entities/refresh-token.entity';
 import { BalanceCache } from '@/balances/entities/balance-cache.entity';
 import { ClaimChallenge } from '@/claims/entities/claim-challenge.entity';
 import { ClaimEntity } from '@/claims/entities/claim.entity';
@@ -29,6 +30,7 @@ export const ENTITIES = [
   Merchant,
   Payment,
   PriceSnapshot,
+  RefreshTokenEntity,
   ServiceCounterEntity,
   SettlementEntity,
   SignerEntity,

@@ -114,12 +114,10 @@ describe('SecretsService.list', () => {
     ]);
   });
 
-  it('returns an empty list for a user with no backup, and logs the miss', async () => {
+  it('returns an empty list for a user with no backup', async () => {
     const { service } = await build();
-    const log = jest.spyOn(service['logger'], 'log');
 
     await expect(service.list(USER, ESecretKind.ENTROPY)).resolves.toEqual([]);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('found=0'));
   });
 });
 

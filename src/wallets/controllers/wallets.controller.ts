@@ -21,6 +21,7 @@ import {
 import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
 import { LinkWalletsDTO } from '@/wallets/dtos/link-wallets.dto';
 import { WalletsService } from '@/wallets/services/wallets.service';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('wallets')
 @ApiBearerAuth('jwt')
@@ -29,6 +30,7 @@ import { WalletsService } from '@/wallets/services/wallets.service';
 export class WalletsController {
   constructor(private readonly walletsService: WalletsService) {}
 
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post()
   @ApiOperation({
     summary: 'Link chain addresses',

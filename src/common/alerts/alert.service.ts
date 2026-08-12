@@ -36,9 +36,12 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
+const DEDUPE_WINDOW_MS = 60 * 60 * 1000;
+
 @Injectable()
 export class AlertService {
   private readonly logger = new Logger(AlertService.name);
+  private readonly recent = new Map<string, number>();
   private readonly webhookUrl: string;
   private readonly source: string;
   private readonly telegramChatId: string;
@@ -60,6 +63,8 @@ export class AlertService {
   }
 
   async raise(alert: IAlert): Promise<void> {
+    if (this.suppressed(alert)) return;
+
     const line =
       `security_event=${alert.code} severity=${alert.severity} ` +
       `subject=${alert.subject} message="${alert.message}"` +
@@ -81,6 +86,21 @@ export class AlertService {
         `Alert delivery failed for ${alert.code}: ${String(err)}`,
       );
     }
+  }
+
+  private suppressed(alert: IAlert): boolean {
+    if (alert.severity === EAlertSeverity.INFO) return false;
+
+    const key = `${alert.code}|${alert.subject}`;
+    const now = Date.now();
+    const firedAt = this.recent.get(key);
+    if (firedAt !== undefined && now - firedAt < DEDUPE_WINDOW_MS) return true;
+
+    this.recent.set(key, now);
+    for (const [seen, at] of this.recent) {
+      if (now - at >= DEDUPE_WINDOW_MS) this.recent.delete(seen);
+    }
+    return false;
   }
 
   private payload(alert: IAlert): Record<string, unknown> {

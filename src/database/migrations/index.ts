@@ -18,6 +18,8 @@ import { SecretsList1786500000000 } from './1786500000000-SecretsList';
 import { TransactionUniquePerUser1786600000000 } from './1786600000000-TransactionUniquePerUser';
 import { TransactionCounterpartyNullable1786700000000 } from './1786700000000-TransactionCounterpartyNullable';
 import { SecretsOverwrite1786800000000 } from './1786800000000-SecretsOverwrite';
+import { RefreshTokens1786900000000 } from './1786900000000-RefreshTokens';
+import { ChallengeCouponBinding1787000000000 } from './1787000000000-ChallengeCouponBinding';
 
 /**
  * Listed explicitly, not globbed: `nest build` bundles the app into a single
@@ -45,4 +47,6 @@ export const migrations = [
   TransactionUniquePerUser1786600000000,
   TransactionCounterpartyNullable1786700000000,
   SecretsOverwrite1786800000000,
+  RefreshTokens1786900000000,
+  ChallengeCouponBinding1787000000000,
 ];

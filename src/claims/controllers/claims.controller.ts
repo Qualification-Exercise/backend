@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -29,6 +30,9 @@ import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
 import { CreateClaimDTO } from '@/claims/dtos/create-claim.dto';
 import { ListClaimsDTO } from '@/claims/dtos/list-claims.dto';
 import { ClaimsService } from '@/claims/services/claims.service';
+import { Throttle } from '@nestjs/throttler';
+import { apiError } from '@/common/api-error';
+import { EErrorCodes } from '@/common/enums/error-codes.enum';
 
 @ApiTags('claims')
 @ApiBearerAuth('jwt')
@@ -37,6 +41,7 @@ import { ClaimsService } from '@/claims/services/claims.service';
 export class ClaimsController {
   constructor(private readonly claimsService: ClaimsService) {}
 
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
@@ -90,12 +95,21 @@ export class ClaimsController {
   })
   @ApiQuery({
     name: 'coupon',
-    required: false,
-    description: 'Coupon code the challenge is bound to',
+    required: true,
+    description:
+      'Coupon code (or id) the challenge is bound to. The signed message names it, so a challenge without one can never verify.',
   })
   @ApiOkResponse({ description: 'Challenge to be signed before it expires' })
   challenge(@CurrentUser() user: IAuthUser, @Query('coupon') coupon: string) {
-    return this.claimsService.createChallenge(user.userId, coupon ?? '');
+    if (!coupon?.trim()) {
+      throw new BadRequestException(
+        apiError(
+          EErrorCodes.INVALID_REQUEST,
+          'Query parameter "coupon" is required',
+        ),
+      );
+    }
+    return this.claimsService.createChallenge(user.userId, coupon.trim());
   }
 
   @Get(':id')

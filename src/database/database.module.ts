@@ -18,7 +18,7 @@ import { migrations } from './migrations';
         database: configService.get('DB_NAME'),
         entities: ENTITIES,
         synchronize: false,
-        logging: configService.get('NODE_ENV') === 'development',
+        logging: configService.get('DB_LOGGING'),
         migrations,
         migrationsRun: true,
         migrationsTransactionMode: 'all',

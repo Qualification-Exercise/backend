@@ -1,6 +1,8 @@
+import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AuthController } from '@/auth/controllers/auth.controller';
+import { DevAuthController } from '@/auth/controllers/dev-auth.controller';
 import { BalancesController } from '@/balances/controllers/balances.controller';
 import { ClaimsController } from '@/claims/controllers/claims.controller';
 import { ConfigController } from '@/config/controllers/config.controller';
@@ -21,6 +23,7 @@ describe('AuthController', () => {
     googleLogin: returns({ accessToken: 'a', refreshToken: 'r' }),
     refreshTokens: returns({ accessToken: 'a2', refreshToken: 'r2' }),
     generateDevTestToken: returns({ accessToken: 'dev', refreshToken: 'dev' }),
+    logout: returns(undefined),
   };
   const controller = new AuthController(service as never);
 
@@ -36,8 +39,14 @@ describe('AuthController', () => {
     expect(service.refreshTokens).toHaveBeenCalledWith('r');
   });
 
-  it('issues a development token', async () => {
-    await expect(controller.testToken()).resolves.toMatchObject({
+  it('ends the session through the service', async () => {
+    await controller.logout({ refreshToken: 'r' } as never);
+    expect(service.logout).toHaveBeenCalledWith('r');
+  });
+
+  it('issues a development token from the separately registered controller', async () => {
+    const dev = new DevAuthController(service as never);
+    await expect(dev.testToken()).resolves.toMatchObject({
       accessToken: 'dev',
     });
   });
@@ -163,9 +172,11 @@ describe('ClaimsController', () => {
     await controller.challenge(USER as never, 'CB-1');
     expect(service.createChallenge).toHaveBeenCalledWith('user-1', 'CB-1');
 
-    // A challenge with no coupon named still has to produce a message.
-    await controller.challenge(USER as never, undefined as never);
-    expect(service.createChallenge).toHaveBeenLastCalledWith('user-1', '');
+    // The signed message names a coupon, so a challenge without one could
+    // never verify — it is rejected instead of being issued unusable.
+    expect(() =>
+      controller.challenge(USER as never, undefined as never),
+    ).toThrow(BadRequestException);
 
     await controller.preview(USER as never);
     expect(service.preview).toHaveBeenCalledWith('user-1');
@@ -338,9 +349,25 @@ describe('ConfigController', () => {
 });
 
 describe('HealthController', () => {
+  it('reports the database down when the query fails, not just at boot', async () => {
+    const service = new HealthService(
+      {
+        isInitialized: true,
+        query: async () => {
+          throw new Error('connection refused');
+        },
+      } as never,
+      { getBreakerState: () => 'closed' } as never,
+    );
+
+    await expect(
+      new HealthController(service).getHealth(),
+    ).resolves.toMatchObject({ status: 'error', database: 'disconnected' });
+  });
+
   it('reports the database and the indexer breaker', async () => {
     const service = new HealthService(
-      { isInitialized: true } as never,
+      { isInitialized: true, query: async () => [{ '?column?': 1 }] } as never,
       { getBreakerState: () => 'closed' } as never,
     );
 

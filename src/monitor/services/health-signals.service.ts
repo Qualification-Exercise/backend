@@ -16,12 +16,15 @@ import {
 } from '@/common/metrics/service-counter.entity';
 import { MonitorConfig } from '@/monitor/monitor-config';
 import { IndexerCursor } from '@/payments/entities/indexer-cursor.entity';
+import { EventCursorEntity } from '@/common/chain/event-cursor.entity';
 
 const COUNTERS = [
   COUNTER_INDEXER_REQUESTS,
   COUNTER_INDEXER_ERRORS,
   COUNTER_INDEXER_RATE_LIMITED,
 ];
+
+const FAILURE_CURSOR = 'monitor:claim-failures-seen-at';
 
 /**
  * The signals that say the pipeline is unwell before anything is provably
@@ -34,7 +37,6 @@ const COUNTERS = [
 @Injectable()
 export class HealthSignalsService {
   private previous?: Record<string, number>;
-  private lastSeenFailure = new Date(0);
 
   constructor(
     private readonly config: MonitorConfig,
@@ -44,6 +46,8 @@ export class HealthSignalsService {
     private readonly cursors: Repository<IndexerCursor>,
     @InjectRepository(ClaimEntity)
     private readonly claims: Repository<ClaimEntity>,
+    @InjectRepository(EventCursorEntity)
+    private readonly eventCursors: Repository<EventCursorEntity>,
   ) {}
 
   async check(): Promise<void> {
@@ -120,7 +124,7 @@ export class HealthSignalsService {
   }
 
   private async checkClaimFailures(): Promise<void> {
-    const since = this.lastSeenFailure;
+    const since = await this.lastSeenFailure();
     const failures = await this.claims.find({
       where: { status: EClaimStatus.FAILED, updatedAt: MoreThan(since) },
       relations: { coupon: true },
@@ -146,7 +150,21 @@ export class HealthSignalsService {
           detail: claim.failureDetail,
         },
       });
-      this.lastSeenFailure = claim.updatedAt;
+      await this.rememberFailure(claim.updatedAt);
     }
+  }
+
+  private async lastSeenFailure(): Promise<Date> {
+    const row = await this.eventCursors.findOne({
+      where: { name: FAILURE_CURSOR },
+    });
+    return new Date(row ? Number(row.lastBlock) : 0);
+  }
+
+  private async rememberFailure(at: Date): Promise<void> {
+    await this.eventCursors.upsert(
+      { name: FAILURE_CURSOR, lastBlock: at.getTime() },
+      { conflictPaths: ['name'] },
+    );
   }
 }

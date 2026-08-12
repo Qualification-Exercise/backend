@@ -72,7 +72,7 @@ export class IssuerConfig {
       configService.get('ISSUER_SIGNING_KEY') || '',
       {
         password: configService.get('SIGNER_KEY_PASSWORD'),
-        allowPlaintextKey: configService.get('NODE_ENV') === 'development',
+        allowPlaintextKey: configService.get('ALLOW_PLAINTEXT_SIGNING_KEY'),
       },
     );
   }

@@ -24,6 +24,7 @@ import { ConfirmationPolicy } from '@/payments/confirmation-policy';
 import { IndexerCursor } from '@/payments/entities/indexer-cursor.entity';
 import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
+import { EventCursorEntity } from '@/common/chain/event-cursor.entity';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { Payment } from '@/payments/entities/payment.entity';
       Payment,
       Merchant,
       IndexerCursor,
+      EventCursorEntity,
       ClaimEntity,
       ServiceCounterEntity,
     ]),

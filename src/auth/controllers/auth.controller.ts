@@ -1,4 +1,5 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags } from '@nestjs/swagger';
 import { ApiEndpoint } from '@/common/decorators/api-endpoint.decorator';
 import { AuthService } from '../services/auth.service';
@@ -12,6 +13,7 @@ import { IAuthResponse } from '../interfaces/auth-response.interface';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('google')
   @ApiEndpoint({
     summary: 'Authenticate with Google ID token',
@@ -24,6 +26,7 @@ export class AuthController {
     return this.authService.googleLogin(dto.idToken, dto.type);
   }
 
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post('refresh')
   @ApiEndpoint({
     summary: 'Refresh access token',
@@ -36,15 +39,16 @@ export class AuthController {
     return this.authService.refreshTokens(dto.refreshToken);
   }
 
-  @Post('dev/test-token')
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiEndpoint({
-    summary: 'Generate test token (development only)',
+    summary: 'End the session',
     description:
-      'Issues test tokens for development. Only available in dev mode.',
-    responseType: AuthTokenResponseDto,
+      'Revokes the refresh token and every token rotated from the same login.',
     includeAuth: false,
   })
-  testToken(): Promise<IAuthResponse> {
-    return this.authService.generateDevTestToken();
+  logout(@Body() dto: RefreshTokenDto): Promise<void> {
+    return this.authService.logout(dto.refreshToken);
   }
 }

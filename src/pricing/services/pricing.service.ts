@@ -28,6 +28,8 @@ import { IGetLivePricingParams } from '../interfaces/pricing.interface';
  * what anything is worth — that is accrual's job, and keeping them apart means a
  * pricing bug cannot mint.
  */
+const LIVE_PRICE_TTL_MS = 5_000;
+
 @Injectable()
 export class PricingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PricingService.name);
@@ -36,6 +38,10 @@ export class PricingService implements OnModuleInit, OnModuleDestroy {
   private readonly loop = new IntervalLoop(this.logger);
   private running = false;
   private client: BitfinexPricingClient;
+  private readonly liveCache = new Map<
+    string,
+    { value: { data: unknown[] }; expiresAt: number }
+  >();
 
   constructor(
     private readonly prices: PriceSource,
@@ -138,6 +144,9 @@ export class PricingService implements OnModuleInit, OnModuleDestroy {
 
   async getLivePricing(params: IGetLivePricingParams) {
     const { fromSources, to } = params;
+    const cacheKey = `${fromSources.join(',')}|${to || 'USD'}`;
+    const hit = this.liveCache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) return hit.value;
 
     const paramsToPricing = fromSources.map((source) => {
       return {
@@ -156,8 +165,11 @@ export class PricingService implements OnModuleInit, OnModuleDestroy {
       };
     });
 
-    return {
-      data: mappedRes,
-    };
+    const response = { data: mappedRes };
+    this.liveCache.set(cacheKey, {
+      value: response,
+      expiresAt: Date.now() + LIVE_PRICE_TTL_MS,
+    });
+    return response;
   }
 }
