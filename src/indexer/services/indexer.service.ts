@@ -27,6 +27,9 @@ import type {
   ITokenBalanceQuery,
 } from '@/indexer/interfaces/indexer.interface';
 
+/** Server-side cap: `body must NOT have more than 10 items`. */
+const MAX_BATCH_QUERIES = 10;
+
 const transferSchema = z.object({
   blockchain: z.string(),
   blockNumber: z.number().int().nonnegative(),
@@ -113,14 +116,21 @@ export class IndexerService {
     }
     queries.forEach(assertQuery);
 
-    const body = await this.request('POST', '/batch/token-transfers', queries);
-    const parsed = batchSchema.parse(body);
-    if (parsed.length !== queries.length) {
-      throw new Error(
-        `Batch response has ${parsed.length} entries for ${queries.length} queries`,
-      );
+    const out: ITransfer[][] = [];
+    // The indexer rejects a batch of more than MAX_BATCH_QUERIES items, so a
+    // deployment with more wallets than that would never poll at all.
+    for (let i = 0; i < queries.length; i += MAX_BATCH_QUERIES) {
+      const chunk = queries.slice(i, i + MAX_BATCH_QUERIES);
+      const body = await this.request('POST', '/batch/token-transfers', chunk);
+      const parsed = batchSchema.parse(body);
+      if (parsed.length !== chunk.length) {
+        throw new Error(
+          `Batch response has ${parsed.length} entries for ${chunk.length} queries`,
+        );
+      }
+      out.push(...parsed.map((entry) => entry.transfers));
     }
-    return parsed.map((entry) => entry.transfers);
+    return out;
   }
 
   async tokenBalance(
