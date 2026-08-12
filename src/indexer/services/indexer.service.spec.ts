@@ -116,6 +116,36 @@ describe('IndexerService', () => {
     ).rejects.toThrow(/2 queries/);
   });
 
+  it('splits a batch into chunks of 10, the most the indexer accepts', async () => {
+    const request = jest.fn((config: { data?: unknown }) =>
+      of({
+        data: (config.data as unknown[]).map(() => ({ transfers: [] })),
+      }),
+    );
+    const ref = await Test.createTestingModule({
+      providers: [
+        IndexerService,
+        { provide: HttpService, useValue: { request } },
+        { provide: ConfigService, useValue: { get: () => 'test-key' } },
+      ],
+    }).compile();
+    const service = ref.get(IndexerService);
+
+    const queries = Array.from({ length: 23 }, (_, i) => ({
+      blockchain: 'sepolia',
+      token: 'usdt',
+      address: `0x${i}`,
+      limit: 10,
+    }));
+
+    const results = await service.batchTokenTransfers(queries);
+
+    expect(results).toHaveLength(23);
+    expect(
+      request.mock.calls.map(([config]) => (config.data as unknown[]).length),
+    ).toEqual([10, 10, 3]);
+  });
+
   it('fetches token balance with path params and sends API key', async () => {
     const { service, request } = await build({
       tokenBalance: {
