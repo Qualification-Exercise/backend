@@ -64,6 +64,7 @@ function configWith(overrides: Record<string, unknown>): () => RelayerConfig {
     ISSUER_RPC_URL: 'https://issuer-a.example/rpc',
     SIGNER_KEY_PASSWORD: '',
     NODE_ENV: 'development',
+    ALLOW_PLAINTEXT_SIGNING_KEY: true,
     ...overrides,
   };
   const configService = {

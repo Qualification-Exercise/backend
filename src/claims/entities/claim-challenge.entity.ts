@@ -20,6 +20,9 @@ export class ClaimChallenge {
   @Column({ unique: true })
   nonce: string;
 
+  @Column()
+  couponRef: string;
+
   @Column({ type: 'timestamptz' })
   expiresAt: Date;
 

@@ -207,6 +207,7 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
       this.challenges.create({
         userId,
         nonce: `0x${randomBytes(32).toString('hex')}`,
+        couponRef: normalizedForLookup(coupon),
         expiresAt: new Date(Date.now() + CHALLENGE_TTL_MS),
         consumedAt: null,
       }),
@@ -215,7 +216,7 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     return {
       challengeId: challenge.id,
       nonce: challenge.nonce,
-      message: claimMessage(challenge.nonce, normalizedForLookup(coupon)),
+      message: claimMessage(challenge.nonce, challenge.couponRef),
       expiresAt: challenge.expiresAt.toISOString(),
       verifyingContract: payout.address,
       chainId: payout.chainId,
@@ -223,10 +224,11 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async consumeChallenge(
+    em: EntityManager,
     userId: string,
     challengeId: string,
-  ): Promise<string> {
-    const claimed = await this.challenges
+  ): Promise<ClaimChallenge> {
+    const claimed = await em
       .createQueryBuilder()
       .update(ClaimChallenge)
       .set({ consumedAt: new Date() })
@@ -234,19 +236,38 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
       .andWhere('"userId" = :userId', { userId })
       .andWhere('"consumedAt" IS NULL')
       .andWhere('"expiresAt" > now()')
-      .returning('nonce')
+      .returning('*')
       .execute();
 
-    const nonce = claimed.raw?.[0]?.nonce as string | undefined;
-    if (!nonce) {
-      throw new BadRequestException(
-        apiError(
-          EErrorCodes.CHALLENGE_INVALID,
-          'Challenge is unknown, already used, expired, or belongs to another user',
-        ),
-      );
+    const row = claimed.raw?.[0] as ClaimChallenge | undefined;
+    if (!row) throw this.challengeInvalid();
+    return row;
+  }
+
+  private async loadChallenge(
+    userId: string,
+    challengeId: string,
+  ): Promise<ClaimChallenge> {
+    const challenge = await this.challenges.findOne({
+      where: { id: challengeId, userId },
+    });
+    if (
+      !challenge ||
+      challenge.consumedAt ||
+      challenge.expiresAt <= new Date()
+    ) {
+      throw this.challengeInvalid();
     }
-    return nonce;
+    return challenge;
+  }
+
+  private challengeInvalid(): BadRequestException {
+    return new BadRequestException(
+      apiError(
+        EErrorCodes.CHALLENGE_INVALID,
+        'Challenge is unknown, already used, expired, or belongs to another user',
+      ),
+    );
   }
 
   async create(
@@ -271,6 +292,8 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    const recipient = await this.proveOwnership(userId, dto);
+
     return this.idempotency.run(
       userId,
       idempotencyKey.trim(),
@@ -279,7 +302,7 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
         code: dto.code ?? null,
         challengeId: dto.challengeId,
       }),
-      (em) => this.claimOne(em, userId, dto),
+      (em) => this.claimOne(em, userId, dto, recipient),
     );
   }
 
@@ -287,18 +310,16 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     em: EntityManager,
     userId: string,
     dto: CreateClaimDTO,
+    recipient: string,
   ): Promise<IClaimCreatedResponse> {
     await em.query('SELECT pg_advisory_xact_lock(hashtext($1))', [userId]);
 
     await this.assertNotInCooldown(em, userId);
     const coupon = await this.resolveCoupon(em, userId, dto);
 
-    const recipient = await this.proveAndResolveRecipient(
-      em,
-      userId,
-      dto,
-      coupon,
-    );
+    const challenge = await this.consumeChallenge(em, userId, dto.challengeId);
+    this.assertChallengeMatchesCoupon(challenge, coupon);
+    await this.wallets.confirmOwnership(em, userId, recipient);
 
     const moved: unknown[] = await em.query(
       `UPDATE coupons SET status = $1, "updatedAt" = now()
@@ -407,15 +428,13 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
     return coupon;
   }
 
-  private async proveAndResolveRecipient(
-    em: EntityManager,
+  private async proveOwnership(
     userId: string,
     dto: CreateClaimDTO,
-    coupon: ICouponRow,
   ): Promise<string> {
-    const recipient = await this.resolveRecipient(em, userId);
-    const nonce = await this.consumeChallenge(userId, dto.challengeId);
-    const message = claimMessage(nonce, coupon.code ?? coupon.id);
+    const recipient = await this.resolveRecipient(this.claims.manager, userId);
+    const challenge = await this.loadChallenge(userId, dto.challengeId);
+    const message = claimMessage(challenge.nonce, challenge.couponRef);
 
     const proven = await verifyOwnership(
       recipient.address,
@@ -435,8 +454,23 @@ export class ClaimsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    await this.wallets.confirmOwnership(em, userId, recipient.address);
     return recipient.address;
+  }
+
+  private assertChallengeMatchesCoupon(
+    challenge: ClaimChallenge,
+    coupon: ICouponRow,
+  ): void {
+    const claimed = normalizedForLookup(coupon.code ?? coupon.id);
+    if (challenge.couponRef === claimed) return;
+
+    throw new BadRequestException(
+      apiError(
+        EErrorCodes.CHALLENGE_INVALID,
+        'Challenge was issued for a different coupon; request a new one',
+        { signedFor: challenge.couponRef },
+      ),
+    );
   }
 
   private async resolveRecipient(

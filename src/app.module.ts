@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from '@/config/env';
 import { DatabaseModule } from '@/database/database.module';
 import { UsersModule } from '@/users/users.module';
@@ -17,8 +17,7 @@ import { ClaimsModule } from '@/claims/claims.module';
 import { SecretsModule } from '@/secrets/secrets.module';
 import { BalancesModule } from '@/balances/balances.module';
 import { AttestationsModule } from '@/attestations/attestations.module';
-import { DebugTraceInterceptor } from '@/common/debug-trace.interceptor';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 @Module({
@@ -52,13 +51,12 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
   ],
   providers: [
     {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+    {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
-    },
-    // TEMPORARY: remove with src/common/debug-trace.interceptor.ts.
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: DebugTraceInterceptor,
     },
   ],
 })

@@ -254,7 +254,8 @@ variable is documented there and mirrored in `.env.example`.
 
 | Group             | Keys                                                                                                                          |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Runtime           | `NODE_ENV`, `PORT`, `APP_NAME`, `CORS_ORIGINS`, `LOG_LEVEL`                                                                   |
+| Runtime           | `NODE_ENV` (required, no default), `PORT`, `APP_NAME`, `CORS_ORIGINS`, `LOG_LEVEL`                                            |
+| Unsafe switches   | `ALLOW_PLAINTEXT_SIGNING_KEY`, `EXPOSE_ERROR_STACK`, `DB_LOGGING`, `ENABLE_DEV_TEST_TOKEN` — all default `false`, each independent |
 | Database / Redis  | `DB_*`, `REDIS_*`                                                                                                             |
 | Auth              | `AUTH_PROVIDER`, `JWT_SECRET`, `JWT_EXPIRATION`, `REFRESH_TOKEN_EXPIRATION`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `JWKS_URI`, `GOOGLE_*_CLIENT_ID` |
 | Indexer           | `INDEXER_BASE_URL`, `INDEXER_API_KEY`, `PAYMENT_POLL_*`                                                                       |
@@ -339,8 +340,24 @@ attestation's author against that table before spending gas — so they live in
 the `SeedSigners` migration instead. `npm run seed` stays a local dev tool: its
 test user is behind `NODE_ENV === 'development'` and never exists in production.
 
-`NODE_ENV` accepts exactly `development`, `production` or `test`; anything else
-fails the Zod schema at startup.
+`NODE_ENV` accepts exactly `development`, `production` or `test`, and has **no
+default**: an unset value fails the Zod schema at startup rather than booting in
+development mode.
+
+The four capabilities that used to follow from `NODE_ENV=development` are now
+separate opt-in flags, so one wrong value cannot open all of them at once:
+
+| Flag                          | What it turns on                                                        |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `ALLOW_PLAINTEXT_SIGNING_KEY` | Accept `env:0x<privkey>` instead of an argon2id-encrypted key            |
+| `EXPOSE_ERROR_STACK`          | Put the exception stack in the HTTP error body                           |
+| `DB_LOGGING`                  | TypeORM query logging, including bound parameters                        |
+| `ENABLE_DEV_TEST_TOKEN`       | Register `POST /auth/dev/test-token` — it mints a session with no credential; the route does not exist when the flag is off |
+
+Sessions are revocable: every refresh token is a row in `refresh_tokens` and is
+spent on exchange. Presenting a spent one revokes the whole family (the login it
+descends from) and is logged as `security_event=auth.refresh_reuse`.
+`POST /auth/logout` revokes a family on demand.
 
 ---
 

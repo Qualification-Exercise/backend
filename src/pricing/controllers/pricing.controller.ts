@@ -1,4 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { GetLivePricingDto } from '@/pricing/dtos/get-live-pricing.dto';
@@ -9,6 +10,7 @@ import { PricingService } from '@/pricing/services/pricing.service';
 export class PricingController {
   constructor(private readonly pricingService: PricingService) {}
 
+  @Throttle({ default: { ttl: 10_000, limit: 10 } })
   @Get('live')
   @ApiOperation({
     summary: 'Live prices',

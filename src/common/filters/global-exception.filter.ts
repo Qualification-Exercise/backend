@@ -20,9 +20,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
-    const isDevelopment =
-      this.configService.get<string>('NODE_ENV', 'development') ===
-      'development';
+    const exposeInternals =
+      this.configService.get<boolean>('EXPOSE_ERROR_STACK') === true;
 
     let status: number;
     let message: string | object;
@@ -52,11 +51,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       >;
     } else if (exception instanceof Error) {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
-      message = isDevelopment ? exception.message : 'Internal server error';
+      message = exposeInternals ? exception.message : 'Internal server error';
       error = 'Internal Server Error';
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
-      message = isDevelopment
+      message = exposeInternals
         ? 'Unknown error occurred'
         : 'Internal server error';
       error = 'Internal Server Error';
@@ -70,9 +69,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       method: request.method,
       message: typeof message === 'string' ? message : JSON.stringify(message),
       error,
-      ...(isDevelopment && exception instanceof Error
-        ? { stack: exception.stack }
-        : {}),
+      ...(exception instanceof Error ? { stack: exception.stack } : {}),
       additional_data: additionalData,
     };
 
@@ -95,7 +92,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       errorResponse.error = error;
     }
 
-    if (isDevelopment && exception instanceof Error && exception.stack) {
+    if (exposeInternals && exception instanceof Error && exception.stack) {
       errorResponse.stack = exception.stack;
     }
 

@@ -66,7 +66,7 @@ describe('GlobalExceptionFilter', () => {
 
   describe('HttpException handling', () => {
     it('should handle HttpException with string message', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const exception = new HttpException(
         'Test error message',
         HttpStatus.BAD_REQUEST,
@@ -85,7 +85,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should handle HttpException with object response', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const exception = new HttpException(
         { message: 'Validation failed', error: 'Bad Request' },
         HttpStatus.BAD_REQUEST,
@@ -104,7 +104,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should handle HttpException with array message', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const exception = new HttpException(
         { message: ['Error 1', 'Error 2'], error: 'Bad Request' },
         HttpStatus.BAD_REQUEST,
@@ -120,7 +120,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should handle HttpException with 404 status', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const exception = new HttpException('Not Found', HttpStatus.NOT_FOUND);
 
       filter.catch(exception, mockArgumentsHost);
@@ -130,7 +130,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should log client errors (4xx) as warnings', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const warnSpy = jest.spyOn(Logger.prototype, 'warn');
       const exception = new HttpException(
         'Bad Request',
@@ -151,7 +151,7 @@ describe('GlobalExceptionFilter', () => {
 
   describe('Error handling', () => {
     it('should handle generic Error in development mode', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const error = new Error('Test error');
       error.stack = 'Error stack trace';
 
@@ -171,7 +171,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should handle generic Error in production mode', () => {
-      mockConfigGet.mockReturnValue('production');
+      mockConfigGet.mockReturnValue(false);
       const error = new Error('Test error');
       error.stack = 'Error stack trace';
 
@@ -195,7 +195,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should log server errors (5xx) as errors', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const error = new Error('Server error');
 
       filter.catch(error, mockArgumentsHost);
@@ -210,7 +210,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should include stack trace in development mode for Error', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const error = new Error('Test error');
       error.stack = 'Stack trace here';
 
@@ -224,7 +224,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should not include stack trace in production mode', () => {
-      mockConfigGet.mockReturnValue('production');
+      mockConfigGet.mockReturnValue(false);
       const error = new Error('Test error');
       error.stack = 'Stack trace here';
 
@@ -239,7 +239,7 @@ describe('GlobalExceptionFilter', () => {
 
   describe('Unknown error handling', () => {
     it('should handle unknown error type in development mode', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const unknownError = { someProperty: 'value' };
 
       filter.catch(unknownError, mockArgumentsHost);
@@ -257,7 +257,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should handle unknown error type in production mode', () => {
-      mockConfigGet.mockReturnValue('production');
+      mockConfigGet.mockReturnValue(false);
       const unknownError = { someProperty: 'value' };
 
       filter.catch(unknownError, mockArgumentsHost);
@@ -273,7 +273,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should handle null error', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
 
       filter.catch(null, mockArgumentsHost);
 
@@ -283,7 +283,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should handle undefined error', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
 
       filter.catch(undefined, mockArgumentsHost);
 
@@ -295,7 +295,7 @@ describe('GlobalExceptionFilter', () => {
 
   describe('Request information', () => {
     it('should include request URL in error response', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const exception = new HttpException('Error', HttpStatus.BAD_REQUEST);
       mockRequest.url = '/api/users/123';
 
@@ -309,7 +309,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should include request method in error response', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const exception = new HttpException('Error', HttpStatus.BAD_REQUEST);
       mockRequest.method = 'POST';
 
@@ -323,7 +323,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should include timestamp in error response', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const exception = new HttpException('Error', HttpStatus.BAD_REQUEST);
       const beforeTime = new Date().toISOString();
 
@@ -344,14 +344,14 @@ describe('GlobalExceptionFilter', () => {
   });
 
   describe('Environment configuration', () => {
-    it('should use development mode when NODE_ENV is development', () => {
-      mockConfigGet.mockReturnValue('development');
+    it('exposes internals when EXPOSE_ERROR_STACK is on', () => {
+      mockConfigGet.mockReturnValue(true);
       const error = new Error('Test error');
       error.stack = 'Stack trace';
 
       filter.catch(error, mockArgumentsHost);
 
-      expect(mockConfigGet).toHaveBeenCalledWith('NODE_ENV', 'development');
+      expect(mockConfigGet).toHaveBeenCalledWith('EXPOSE_ERROR_STACK');
       expect(mockResponseJson).toHaveBeenCalledWith(
         expect.objectContaining({
           stack: 'Stack trace',
@@ -359,8 +359,8 @@ describe('GlobalExceptionFilter', () => {
       );
     });
 
-    it('should use production mode when NODE_ENV is production', () => {
-      mockConfigGet.mockReturnValue('production');
+    it('hides internals when EXPOSE_ERROR_STACK is off', () => {
+      mockConfigGet.mockReturnValue(false);
       const error = new Error('Test error');
       error.stack = 'Stack trace';
 
@@ -378,20 +378,20 @@ describe('GlobalExceptionFilter', () => {
       expect(callArgs.stack).toBeUndefined();
     });
 
-    it('should default to development mode when NODE_ENV is not set', () => {
-      mockConfigGet.mockReturnValue('development');
+    it('hides internals when EXPOSE_ERROR_STACK is unset', () => {
+      mockConfigGet.mockReturnValue(undefined);
       const error = new Error('Test error');
       error.stack = 'Stack trace';
 
       filter.catch(error, mockArgumentsHost);
 
-      expect(mockConfigGet).toHaveBeenCalledWith('NODE_ENV', 'development');
+      expect(mockConfigGet).toHaveBeenCalledWith('EXPOSE_ERROR_STACK');
     });
   });
 
   describe('Error logging', () => {
     it('should log error details for 5xx errors', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const error = new Error('Server error');
       const errorSpy = jest.spyOn(Logger.prototype, 'error');
 
@@ -408,7 +408,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should log warning for 4xx errors', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const exception = new HttpException(
         'Client error',
         HttpStatus.BAD_REQUEST,
@@ -426,7 +426,7 @@ describe('GlobalExceptionFilter', () => {
     });
 
     it('should include error message in log for Error instances', () => {
-      mockConfigGet.mockReturnValue('development');
+      mockConfigGet.mockReturnValue(true);
       const error = new Error('Specific error message');
       const errorSpy = jest.spyOn(Logger.prototype, 'error');
 

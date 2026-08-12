@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -23,8 +23,6 @@ export interface ISecretItem {
  */
 @Injectable()
 export class SecretsService {
-  private readonly logger = new Logger(SecretsService.name);
-
   constructor(
     @InjectRepository(WalletSecret)
     private readonly secrets: Repository<WalletSecret>,
@@ -57,22 +55,12 @@ export class SecretsService {
       }) as Parameters<Repository<WalletSecret>['upsert']>[0],
       { conflictPaths: ['userId', 'kind'] },
     );
-    this.logger.log(
-      `security_event=secrets.write userId=${userId} blob=${kind}`,
-    );
   }
   async list(userId: string, kind: ESecretKind): Promise<ISecretItem[]> {
     const rows = await this.secrets.find({
       where: { userId, kind },
       order: { createdAt: 'ASC' },
     });
-
-    // Access-logged whether or not it hit: a spike of misses is the shape of
-    // an enumeration run, and it is invisible if only hits are recorded.
-    this.logger.log(
-      `security_event=secrets.read userId=${userId} blob=${kind} ` +
-        `found=${rows.length}`,
-    );
 
     return rows.map((row) => ({
       [kind]: row.blob,
@@ -91,11 +79,6 @@ export class SecretsService {
   ): Promise<{ deleted: number }> {
     const { affected } = await this.secrets.delete({ userId, kind });
     const deleted = affected ?? 0;
-
-    this.logger.log(
-      `security_event=secrets.delete userId=${userId} blob=${kind} ` +
-        `deleted=${deleted}`,
-    );
 
     return { deleted };
   }

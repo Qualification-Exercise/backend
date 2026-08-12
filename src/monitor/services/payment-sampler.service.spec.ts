@@ -6,6 +6,7 @@ import { AlertService, EAlertSeverity } from '@/common/alerts/alert.service';
 import { PaymentVerifierService } from '@/common/chain/payment-verifier.service';
 import { MonitorConfig } from '@/monitor/monitor-config';
 import { PaymentSamplerService } from '@/monitor/services/payment-sampler.service';
+import { EventCursorEntity } from '@/common/chain/event-cursor.entity';
 import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
 
@@ -16,6 +17,7 @@ const TX_HASH = `0x${'cd'.repeat(32)}`;
 
 const getBlockNumber = jest.fn(async () => 21_000_000n);
 const getLogs = jest.fn(async () => [] as unknown[]);
+const cursorUpsert = jest.fn(async () => undefined);
 
 jest.mock('viem', () => ({
   ...jest.requireActual('viem'),
@@ -55,12 +57,14 @@ async function build(
     logs?: unknown[];
     rpcUrl?: string | null;
     token?: string | null;
+    cursorBlock?: number;
   } = {},
 ) {
   getBlockNumber.mockClear();
   getLogs.mockClear();
   getLogs.mockResolvedValue(options.logs ?? []);
 
+  cursorUpsert.mockClear();
   const alerts = { raise: jest.fn(async () => undefined) };
   const verifier = {
     verify: jest.fn(async () => {
@@ -102,6 +106,17 @@ async function build(
         provide: getRepositoryToken(Merchant),
         useValue: { find: jest.fn(async () => options.merchants ?? []) },
       },
+      {
+        provide: getRepositoryToken(EventCursorEntity),
+        useValue: {
+          findOne: jest.fn(async () =>
+            options.cursorBlock === undefined
+              ? null
+              : { name: 'c', lastBlock: options.cursorBlock },
+          ),
+          upsert: cursorUpsert,
+        },
+      },
     ],
   }).compile();
 
@@ -109,6 +124,7 @@ async function build(
     service: moduleRef.get(PaymentSamplerService),
     alerts,
     verifier,
+    cursorUpsert,
   };
 }
 
@@ -214,6 +230,26 @@ describe('PaymentSamplerService — payments the indexer never reported', () => 
         fromBlock: 20_999_500n,
         toBlock: 21_000_000n,
       }),
+    );
+  });
+
+  it('resumes from the stored cursor instead of rescanning the window', async () => {
+    const { service, cursorUpsert } = await build({
+      merchants: [merchant()],
+      cursorBlock: 20_999_900,
+    });
+
+    await service.check();
+
+    expect(getLogs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromBlock: 20_999_901n,
+        toBlock: 21_000_000n,
+      }),
+    );
+    expect(cursorUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ lastBlock: 21_000_000 }),
+      expect.anything(),
     );
   });
 

@@ -43,7 +43,31 @@ interface IFixture {
   digest: Hex;
 }
 
-const fixture: IFixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
+const EMPTY_FIXTURE: IFixture = {
+  domain: {
+    name: '',
+    version: '',
+    chainId: 0,
+    verifyingContract: '0x',
+  },
+  domainSeparator: '0x',
+  message: { recipient: '0x', amount: '0', paymentRef: '0x', deadline: '0' },
+  digest: '0x',
+};
+
+let fixture: IFixture = EMPTY_FIXTURE;
+let fixtureAvailable = true;
+try {
+  fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as IFixture;
+} catch {
+  fixtureAvailable = false;
+  console.warn(
+    `entitlement.json not found at ${FIXTURE_PATH}; contract cross-check skipped. ` +
+      'Check out Qualification-Exercise/contracts beside this repo, or set ENTITLEMENT_FIXTURE.',
+  );
+}
+
+const describeFixture = fixtureAvailable ? describe : describe.skip;
 
 const domain = {
   chainId: fixture.domain.chainId,
@@ -80,7 +104,7 @@ function fakeWdk(): WdkLoader {
   });
 }
 
-describe('EIP-712 entitlement', () => {
+describeFixture('EIP-712 entitlement', () => {
   it('produces the domain separator the contract committed to', () => {
     expect(entitlementDomainSeparator(domain)).toBe(fixture.domainSeparator);
   });
@@ -104,7 +128,7 @@ describe('EIP-712 entitlement', () => {
   });
 });
 
-describe('issuer signer', () => {
+describeFixture('issuer signer', () => {
   const key =
     '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
 
@@ -126,7 +150,10 @@ describe('issuer signer', () => {
     expect(recovered).toBe(privateKeyToAccount(key).address);
     expect(signer.address).toBe(privateKeyToAccount(key).address);
   });
+});
 
+// Key-scheme handling needs no fixture, so it runs everywhere.
+describe('issuer signer key schemes', () => {
   it('refuses a kms: reference rather than silently signing locally', () => {
     expect(() =>
       createIssuerSigner('kms:arn:aws:kms:eu-west-1:1:key/x'),
