@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 
 import { chainBySrcChainId } from '@/chains';
 import { isUniqueViolation } from '@/common/database/pg-errors';
+import { errorMessage } from '@/common/errors';
 import { IntervalLoop } from '@/common/scheduling/interval-loop';
 import type { Env } from '@/config/env';
 import type {
@@ -113,7 +114,7 @@ export class WalletTransferPollerService
       }
     } catch (err) {
       // An indexer outage stops ingestion; it must never corrupt it.
-      this.logger.error(`Wallet poll tick failed: ${String(err)}`);
+      this.logger.error(`Wallet poll tick failed: ${errorMessage(err)}`);
     } finally {
       this.running = false;
     }

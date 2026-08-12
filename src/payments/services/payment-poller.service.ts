@@ -28,6 +28,7 @@ import { Merchant } from '@/payments/entities/merchant.entity';
 import { Payment } from '@/payments/entities/payment.entity';
 import { canonicalAddress } from '@/wallets/address';
 import { Wallet } from '@/wallets/entities/wallet.entity';
+import { errorMessage } from '@/common/errors';
 
 function isAfter(t: ITransfer, cursor: IndexerCursor): boolean {
   if (t.blockNumber !== Number(cursor.lastBlockNumber)) {
@@ -128,7 +129,7 @@ export class PaymentPollerService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (err) {
       // An indexer outage stops ingestion; it must never corrupt it.
-      this.logger.error(`Poll tick failed: ${String(err)}`);
+      this.logger.error(`Poll tick failed: ${errorMessage(err)}`);
     } finally {
       this.running = false;
     }
