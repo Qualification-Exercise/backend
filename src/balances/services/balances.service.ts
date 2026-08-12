@@ -10,6 +10,7 @@ import { BalanceCache } from '@/balances/entities/balance-cache.entity';
 import { IndexerService } from '@/indexer/services/indexer.service';
 import { FAMILY_OF_CHAIN_KIND } from '@/wallets/address';
 import { Wallet } from '@/wallets/entities/wallet.entity';
+import { errorMessage } from '@/common/errors';
 
 export interface IBalanceResponse {
   srcChainId: number;
@@ -91,7 +92,9 @@ export class BalancesService {
         }
       }
     } catch (err) {
-      this.logger.warn(`Balance refresh failed for ${userId}: ${String(err)}`);
+      this.logger.warn(
+        `Balance refresh failed for ${userId}: ${errorMessage(err)}`,
+      );
     } finally {
       this.refreshing.delete(userId);
     }
@@ -126,7 +129,7 @@ export class BalancesService {
     } catch (err) {
       this.logger.debug(
         `No balance for ${FAMILY_OF_CHAIN_KIND[wallet.chain]} ` +
-          `${chain.indexer.blockchain}/${token}: ${String(err)}`,
+          `${chain.indexer.blockchain}/${token}: ${errorMessage(err)}`,
       );
     }
   }
