@@ -17,7 +17,8 @@ import { ClaimsModule } from '@/claims/claims.module';
 import { SecretsModule } from '@/secrets/secrets.module';
 import { BalancesModule } from '@/balances/balances.module';
 import { AttestationsModule } from '@/attestations/attestations.module';
-import { APP_FILTER } from '@nestjs/core';
+import { DebugTraceInterceptor } from '@/common/debug-trace.interceptor';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 @Module({
@@ -53,6 +54,11 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    // TEMPORARY: remove with src/common/debug-trace.interceptor.ts.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: DebugTraceInterceptor,
     },
   ],
 })

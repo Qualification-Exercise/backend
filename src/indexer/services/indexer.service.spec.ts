@@ -116,6 +116,20 @@ describe('IndexerService', () => {
     ).rejects.toThrow(/2 queries/);
   });
 
+  it('keeps the good batch entries when one carries no transfers', async () => {
+    const { service } = await build([
+      { error: 'unsupported blockchain' },
+      { transfers: [] },
+    ]);
+
+    const results = await service.batchTokenTransfers([
+      { blockchain: 'spark', token: 'usdt', address: '0xa', limit: 10 },
+      { blockchain: 'sepolia', token: 'usdt', address: '0xb', limit: 10 },
+    ]);
+
+    expect(results).toEqual([[], []]);
+  });
+
   it('splits a batch into chunks of 10, the most the indexer accepts', async () => {
     const request = jest.fn((config: { data?: unknown }) =>
       of({
