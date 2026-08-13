@@ -8,6 +8,7 @@ import { UsersService } from '@/users/services/users.service';
 import { User } from '@/users/entities/user.entity';
 import { EClientType } from '../enums/client-type.enum';
 import { RefreshTokenEntity } from '@/auth/entities/refresh-token.entity';
+import { TEST_USER_ID } from '@/database/test-user';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 describe('AuthService', () => {
@@ -17,6 +18,7 @@ describe('AuthService', () => {
     insert: jest.Mock;
     update: jest.Mock;
   };
+  let configService: ConfigService;
   let jwtService: JwtService;
   let usersService: UsersService;
   let googleVerifier: GoogleTokenVerifierService;
@@ -64,6 +66,7 @@ describe('AuthService', () => {
           provide: UsersService,
           useValue: {
             findByExternalAuthId: jest.fn(),
+            findById: jest.fn(),
             create: jest.fn(),
           },
         },
@@ -81,6 +84,7 @@ describe('AuthService', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
+    configService = module.get<ConfigService>(ConfigService);
     jwtService = module.get<JwtService>(JwtService);
     usersService = module.get<UsersService>(UsersService);
     googleVerifier = module.get<GoogleTokenVerifierService>(
@@ -380,6 +384,45 @@ describe('AuthService', () => {
       expect(tokens.insert).not.toHaveBeenCalled();
     });
 
+    it('kills the family when two refreshes race for the same row', async () => {
+      presentRefresh();
+      tokens.update.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(service.refreshTokens('refresh-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(tokens.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ familyId: 'fam-1' }),
+        expect.objectContaining({ revokedAt: expect.any(Date) }),
+      );
+      expect(tokens.insert).not.toHaveBeenCalled();
+    });
+
+    it('rejects a refresh token minted before rotation (no jti)', async () => {
+      jest.spyOn(jwtService, 'verifyAsync').mockResolvedValue({
+        sub: 'google-123',
+        userId: 'user-id',
+        type: 'refresh',
+      } as never);
+
+      await expect(service.refreshTokens('refresh-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(tokens.findOne).not.toHaveBeenCalled();
+    });
+
+    it('logout on a token with no family is a no-op', async () => {
+      jest.spyOn(jwtService, 'verifyAsync').mockResolvedValue({
+        sub: 'google-123',
+        userId: 'user-id',
+        type: 'refresh',
+      } as never);
+
+      await service.logout('refresh-token');
+
+      expect(tokens.update).not.toHaveBeenCalled();
+    });
+
     it('logout revokes the family behind the token', async () => {
       presentRefresh();
 
@@ -389,6 +432,45 @@ describe('AuthService', () => {
         expect.objectContaining({ familyId: 'fam-1' }),
         expect.objectContaining({ revokedAt: expect.any(Date) }),
       );
+    });
+  });
+
+  describe('generateDevTestToken', () => {
+    const enableFlag = (value: unknown) =>
+      jest
+        .spyOn(configService, 'get')
+        .mockImplementation((key: string) =>
+          key === 'ENABLE_DEV_TEST_TOKEN' ? value : 3600,
+        );
+
+    it('refuses when the flag is off', async () => {
+      await expect(service.generateDevTestToken()).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('refuses when the seeded test user is missing', async () => {
+      enableFlag(true);
+      jest.spyOn(usersService, 'findById').mockResolvedValue(null);
+
+      await expect(service.generateDevTestToken()).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(usersService.findById).toHaveBeenCalledWith(TEST_USER_ID);
+    });
+
+    it('issues a session for the seeded test user', async () => {
+      enableFlag(true);
+      jest.spyOn(usersService, 'findById').mockResolvedValue({
+        id: TEST_USER_ID,
+        externalAuthId: 'test-user',
+      } as User);
+      jest.spyOn(jwtService, 'sign').mockReturnValue('token');
+
+      const result = await service.generateDevTestToken();
+
+      expect(result.accessToken).toBe('token');
+      expect(tokens.insert).toHaveBeenCalled();
     });
   });
 });
